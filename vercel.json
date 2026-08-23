@@ -1,4 +1,5 @@
 {
+  "version": 2,
   "buildCommand": "echo 'static build'",
   "outputDirectory": ".",
   "devCommand": "npx vercel dev",
@@ -6,8 +7,7 @@
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/models/(.*)", "destination": "/models/$1" },
-    { "source": "/face-api.min.js", "destination": "/face-api.min.js" },
-    { "source": "/(.*)", "destination": "/$1" }
+    { "source": "/face-api.min.js", "destination": "/face-api.min.js" }
   ],
   "headers": [
     {
@@ -24,10 +24,5 @@
         { "key": "Access-Control-Allow-Origin", "value": "*" }
       ]
     }
-  ],
-  "functions": {
-    "api/**/*.js": {
-      "maxDuration": 30
-    }
-  }
+  ]
 }
