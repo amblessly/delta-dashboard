@@ -475,7 +475,7 @@ const faceMonitor = window.FaceMonitor.create({
   onStatus(st) {
     if (st.state === "RUNNING") {
       setAvatarUI({ live: true, scanning: !st.models, detected: false, matched: false });
-      setDebugStatus(`RUNNING models=${st.models}`);
+      setDebugStatus(`RUNNING models=${st.models} cam=${!!camFeed.srcObject} ready=${camFeed.readyState}`);
     } else if (st.state === "ERROR" || st.state === "OFF") {
       setAvatarUI({ live: false, scanning: false, detected: false, matched: false });
       endCurrentSession();

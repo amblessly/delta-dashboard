@@ -149,6 +149,8 @@ window.FaceMonitor = (function () {
       });
       await videoEl.play().catch(() => {});
 
+      console.log("[FaceMonitor] video readyState:", videoEl.readyState, "videoWidth:", videoEl.videoWidth, "videoHeight:", videoEl.videoHeight);
+
       await loadModels();
       if (!modelsReady) { setState({ state: "ERROR", error: status.error }); return false; }
 
