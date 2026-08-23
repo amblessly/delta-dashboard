@@ -409,11 +409,11 @@ function endCurrentSession() {
 }
 
 /* ── Debug status overlay (top-right) ── */
-const statusBox = document.createElement("div");
-statusBox.id = "debugStatus";
-statusBox.style.cssText = "position:fixed;top:10px;right:10px;z-index:9999;background:#001018;border:1px solid var(--cyan);color:var(--cyan);padding:6px 10px;border-radius:6px;font-family:mono;font-size:11px;pointer-events:none;";
-document.body.appendChild(statusBox);
-function setDebugStatus(msg) { statusBox.textContent = msg; }
+// const statusBox = document.createElement("div");
+// statusBox.id = "debugStatus";
+// statusBox.style.cssText = "position:fixed;top:10px;right:10px;z-index:9999;background:#001018;border:1px solid var(--cyan);color:var(--cyan);padding:6px 10px;border-radius:6px;font-family:mono;font-size:11px;pointer-events:none;";
+// document.body.appendChild(statusBox);
+function setDebugStatus(msg) { /* disabled */ }
 
 /* ── Avatar camera + face recognition ── */
 
