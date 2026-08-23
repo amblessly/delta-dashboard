@@ -1,225 +1,187 @@
-# Project DELTA — Student Health Dashboard
+# Project DELTA - Student Health Dashboard
 
-Biometric student health monitoring dashboard built for a Raspberry Pi
-kiosk. The camera watches for the user's face — when detected, live
-health readings appear and every measurement is stored in a Neon
-PostgreSQL database. No face on camera means everything reads zero.
+A biometric health monitoring system with **human detection (YOLOv8)**, **face recognition (face-api.js)**, and **personalized vital signs dashboard**.
+
+## Architecture
 
 ```
-Camera ──► face detection ──► FACE DETECTED  → baseline readings + recommendations → saved to PostgreSQL (Neon cloud)
-                          └──► NO FACE       → all values 0 · STANDBY · "NO SIGNAL"
+┌─────────────────┐     HTTP/API      ┌──────────────────┐
+│  Python YOLO    │◄──────────────────►│  Node.js Server  │
+│  Human Detect   │   Port 8001        │  Dashboard/API   │
+│  (Camera)       │                    │  (Port 8000)     │
+└────────┬────────┘                    └────────┬─────────┘
+         │                                      │
+         │ Human presence                       │ Serves UI + DB API
+         ▼                                      ▼
+┌──────────────────────────────────────────────────────────┐
+│                    Browser Dashboard                      │
+│  • face-api.js (face recognition + enrollment)           │
+│  • Polls Python /api/human/present                       │
+│  • Shows vitals only when human detected                 │
+│  • Loads student profile (age/weight) on face match      │
+└──────────────────────────────────────────────────────────┘
 ```
 
-## Features
+## Services
 
-- **Face-detection gate** — readings only appear while a face is visible;
-  look away and the dashboard drops to `0 / STANDBY` automatically
-- **Live avatar feed** — your face appears in the profile circle with a
-  scanning animation; green ring once detected
-- **Event-driven values** — each new detection session starts from fresh
-  baseline readings (no fake auto-updating numbers)
-- **Recommendations engine** — hydration / stress / lactate guidance with
-  tappable acknowledge actions
-- **PostgreSQL storage** — sessions and measurements are written to a
-  Neon cloud database through a small Node.js API server
-- **Kiosk mode** — boots straight into a fullscreen dashboard on a Pi
+| Service | Port | Description |
+|---------|------|-------------|
+| **Python Detector** | 8001 | YOLOv8 human detection via camera |
+| **Node.js Server** | 8000 | Dashboard UI + PostgreSQL API |
+| **Database** | - | Neon PostgreSQL (students, embeddings, sessions) |
 
----
+## Quick Start (Local Development)
 
-## What you need (Raspberry Pi)
+### Prerequisites
+- Python 3.10+ with OpenCV, ultralytics, fastapi, uvicorn
+- Node.js 18+
+- Neon PostgreSQL database (set `DATABASE_URL` in `health-dashboard/server/.env`)
+- Webcam
 
-| Item | Notes |
-|---|---|
-| Raspberry Pi 4 / 5 (2 GB+) | Raspberry Pi OS **Bookworm with desktop** |
-| USB webcam | Plug-and-play in Chromium. A CSI ribbon camera needs extra setup — use a USB cam for the easiest path. |
-| Official 7" touchscreen (optional) | 1024×600 — the dashboard has a dedicated kiosk layout for it. Any HDMI screen works too. |
-| Neon PostgreSQL account | Free tier: [neon.tech](https://neon.tech) → create project → copy connection string |
-| Internet | The database is in Neon's cloud, so the Pi needs connectivity |
-
----
-
-## Quick start on Raspberry Pi (4 steps)
-
-### 1. Clone the project
-
+### 1. Start Python Human Detection Service
 ```bash
-cd ~
-git clone https://github.com/amblessly/detla-dashboard.git
-cd detla-dashboard
+cd human-detection
+pip install -r requirements.txt
+python detector.py
 ```
+- Runs on `http://localhost:8001`
+- Endpoints: `/health`, `/api/human/present`, `/api/human/status`
 
-*(No git yet? `sudo apt update && sudo apt install -y git`)*
-
-### 2. Add your database credentials
-
+### 2. Start Node.js Dashboard Server
 ```bash
-cp server/.env.example server/.env
-nano server/.env
+cd health-dashboard/server
+npm install
+npm start
+```
+- Runs on `http://localhost:8000`
+- Serves dashboard at `/`
+- API: `/api/health`, `/api/student`, `/api/students/enroll`, `/api/measurements`
+
+### 3. Open Dashboard
+Navigate to **http://localhost:8000** in browser
+- Allow camera permission
+- Dashboard shows "NO SIGNAL" until human detected
+- Stand in front of camera → YOLO detects you → vitals appear
+- Unknown face → enrollment modal (name, age, weight)
+- Known face → loads your personalized profile
+
+## Raspberry Pi Deployment
+
+### On Pi (Human Detection)
+```bash
+# Copy human-detection folder to Pi
+scp -r human-detection pi@<pi-ip>:~/
+
+# On Pi
+cd ~/human-detection
+pip install -r requirements.txt
+python detector.py
 ```
 
-Paste your Neon connection string:
+### On Laptop/Server (Dashboard)
+Update `health-dashboard/data.js`:
+```javascript
+const source = window.DashboardData.createPythonDetectionDataSource(
+  "http://<PI_IP>:8001"  // Pi's IP address
+);
+```
 
-```ini
-DATABASE_URL=postgresql://USER:PASSWORD@HOST/neondb?sslmode=require
+Then serve dashboard via Node.js or deploy static files to Vercel.
+
+## Project Structure
+
+```
+HumanDetectionPrototype/
+├── human-detection/           # Python YOLO service
+│   ├── detector.py           # FastAPI + YOLOv8 detection
+│   ├── requirements.txt
+│   └── start.bat
+├── health-dashboard/         # Node.js + Browser dashboard
+│   ├── server/               # Express-like Node server
+│   │   ├── server.js         # Main server + API routes
+│   │   ├── schema.sql        # PostgreSQL schema
+│   │   └── .env              # DATABASE_URL
+│   ├── index.html            # Dashboard UI
+│   ├── main.js               # App logic + face recognition
+│   ├── data.js               # Data source (simulated + Python polling)
+│   ├── camera-monitor.js     # face-api.js integration
+│   ├── db.js                 # localStorage + Neon API
+│   └── styles.css
+├── models/                   # face-api.js models (served locally)
+└── yolov8n.pt               # YOLOv8 nano model
+```
+
+## Key Features
+
+### Human Detection (Python)
+- YOLOv8n person detection (class 0)
+- Runs on separate port (8001) for isolation
+- REST API for dashboard polling
+- CORS enabled for cross-origin dashboard
+
+### Face Recognition (Browser)
+- face-api.js (TinyFaceDetector + FaceRecognitionNet)
+- 128-dim embeddings stored in PostgreSQL
+- Enrollment modal captures name, age, weight
+- Local fallback via localStorage
+
+### Dashboard Data Flow
+1. Python detects human → `/api/human/present` returns `{"present": true}`
+2. Dashboard polls every 1s → `setPresence(true)` → shows vitals
+3. Face recognized → `setStudent({id, name, age, weightKg})`
+4. Vitals simulated around baselines (configurable in `data.js`)
+5. Measurements saved to PostgreSQL per session
+
+## API Endpoints
+
+### Python Detector (8001)
+| Method | Endpoint | Response |
+|--------|----------|----------|
+| GET | `/health` | `{"status":"ok","service":"human-detection"}` |
+| GET | `/api/human/present` | `{"present": true/false}` |
+| GET | `/api/human/status` | `{"human_present":bool,"last_detection":ts,"camera_active":bool}` |
+
+### Node.js Dashboard (8000)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | Dashboard HTML |
+| GET | `/api/health` | Server + DB status |
+| GET | `/api/students` | All enrolled students + embeddings |
+| POST | `/api/students/enroll` | `{name, embedding[128], age?, weightKg?}` |
+| POST | `/api/sessions` | Start session `{clientKey, studentName}` |
+| POST | `/api/measurements` | Save vitals |
+
+## Database Schema (Neon PostgreSQL)
+
+```sql
+students (id, name, age, weight_kg, created_at)
+face_embeddings (id, student_id, embedding[128], created_at)
+detection_sessions (id, client_key, student_id, student_name, started_at, ended_at)
+measurements (id, session_client_key, student_id, electrolytes_pct, hydration_pct, stress_pct, sodium_meq_l, lactate_mmol_l, temperature_c, recorded_at)
+```
+
+## Environment Variables
+
+`health-dashboard/server/.env`:
+```
+DATABASE_URL=postgresql://user:pass@host/db?sslmode=require
 PORT=8000
 ```
 
-Save with `Ctrl+O`, `Enter`, then exit with `Ctrl+X`.
-
-### 3. Run the installer
-
-Installs Chromium, Node.js 20, npm packages, and creates all database
-tables automatically:
-
-```bash
-bash raspberry-pi/install.sh
-```
-
-### 4. Enable boot-to-kiosk autostart, then reboot
-
-```bash
-sudo bash raspberry-pi/install-services.sh
-sudo reboot
-```
-
-**That's it.** After rebooting, the Pi goes straight into the fullscreen
-dashboard: camera permission is granted automatically, face detection is
-live, and measurements start saving to PostgreSQL the moment someone
-looks at the camera.
-
----
-
-## Manual run (no autostart)
-
-Useful for testing or running on a regular PC:
-
-```bash
-cd server
-npm install        # first time only
-npm start          # serves dashboard + API at http://localhost:8000
-```
-
-Open <http://localhost:8000> in Chrome/Chromium, allow the camera, and
-face the webcam.
-
-> Camera access requires `localhost` or HTTPS — opening `index.html`
-> directly from disk will not work.
-
----
-
-## Autostart services (what gets installed)
-
-| Service | Purpose |
-|---|---|
-| `delta-server.service` | Runs the Node.js API server (`server/server.js`) on port 8000, restarts on crash |
-| `delta-kiosk.service` | Launches Chromium in fullscreen kiosk mode pointing at `localhost:8000`, with the camera permission prompt auto-accepted |
-
-Manage them any time:
-
-```bash
-systemctl status delta-server delta-kiosk   # check state
-sudo systemctl restart delta-server         # restart API
-journalctl -u delta-server -f               # live logs
-sudo systemctl disable --now delta-kiosk delta-server   # remove autostart
-```
-
----
-
-## Database (Neon PostgreSQL)
-
-Three tables mirror exactly what the dashboard shows:
-
-| `students` | name, age, weight_kg | Dashboard patient profile |
-| `detection_sessions` | client_key, **student_id**, student_name, started_at, ended_at | One row per face-detection period |
-| `measurements` | **student_id**, student_name, electrolytes_pct, hydration_pct, stress_pct, sodium_meq_l, lactate_mmol_l, temperature_c, recorded_at | One row per periodic reading (every 10 s while a face is present) |
-| `face_embeddings` | student_id, **embedding (float[] 128)** | Facial recognition enrollment vectors |
-
-Re-apply the schema anytime with `cd server && npm run setup-db`.
-Inspect data via the Neon SQL console or:
-
-```bash
-curl http://localhost:8000/api/measurements?limit=10
-```
-
-API endpoints served by `server.js`:
-`GET /api/health` · `GET /api/students` · `GET /api/measurements?limit=N`
-`POST /api/sessions` · `POST /api/sessions/end` · `POST /api/measurements`
-`POST /api/students/enroll`
-
----
-
-## How it works (facial recognition)
-
-1. On boot, Chromium opens `http://localhost:8000`; the page requests the
-   camera (permission is pre-granted by the kiosk flags).
-2. `camera-monitor.js` loads face-api.js models (TinyFaceDetector +
-   FaceLandmark68Tiny + FaceRecognitionNet) which run in-browser via
-   WASM/JS on the Pi — no Python or server-side processing needed.
-3. Every ~900 ms a frame is analyzed:
-   - Face detected → 128-dimensional embedding extracted
-   - Compared vs enrolled embeddings using Euclidean distance
-   - Distance < 0.5 → **IDENTIFIED** (known student → dashboard shows
-     that student's data automatically)
-   - No match → **UNKNOWN** → enrollment modal pops up:
-     *"NEW STUDENT DETECTED — Enter name"*
-   - No face at all → **NO SIGNAL**, dashboard shows zeros
-4. Enrollment saves the face embedding in the Neon database alongside
-   the student profile. Next time that face appears, it is automatically
-   recognized.
-5. Each detection session and periodic measurement is written to Neon
-   PostgreSQL (with the correct student_id) plus a localStorage fallback.
-
----
-
-## Project structure
-
-```
-index.html            dashboard layout (1024x600 kiosk grid + responsive)
-styles.css            dark biometric-terminal theme
-main.js               rendering, wiring of camera monitor + database
-data.js               data layer: presence gate, baselines, rec engine
-camera-monitor.js     getUserMedia + face-presence heuristic
-db.js                 dual-write storage (Neon API + localStorage fallback)
-server/
-  server.js           static file server + JSON API (Node pg -> Neon)
-  schema.sql          database tables
-  setup-db.js         applies schema + seeds student profile
-  .env.example        template for DATABASE_URL / PORT
-raspberry-pi/
-  install.sh          system deps + Node + npm + DB schema
-  install-services.sh systemd autostart (API + kiosk browser)
-face-api.min.js         face-api.js WASM library (offline)
-models/                 face-api.js model weights (3 models)
-face-api.min.js         face-api.js WASM library (offline)
-models/                 face-api.js model weights (3 models)
-strip-analysis.js       colorimetric strip pipeline (dormant module)
-calibration.js          strip calibration store (dormant)
-device.js               strip device state machine (dormant)
-device-panel.js         strip device UI wiring (dormant)
-HEAT-STRESS.md        heat-stress formula documentation
-```
-
----
-
 ## Troubleshooting
 
-| Problem | Fix |
-|---|---|
-| Camera prompt never appears / black circle | Use `http://localhost:8000` (not `file://`). Check the webcam works: `ls /dev/video*`. Replug the USB camera. |
-| Everything stays at 0 even with a face | Improve lighting. The heuristic needs reasonable skin-tone contrast — adjust thresholds in `camera-monitor.js` (`SKIN_RATIO_MIN`, `BRIGHTNESS_MIN`). |
-| `/api/health` returns error | Check `server/.env`, then test the connection string: `cd server && npm run setup-db`. Verify internet access on the Pi. |
-| Port 8000 already in use | Change `PORT=` in `server/.env`, then `sudo systemctl restart delta-server`. |
-| Kiosk shows blank after reboot | Wait ~15 s for the server unit, then `journalctl -u delta-kiosk -f`. Confirm you ran both install scripts. |
-| Wrong screen resolution | Preferences → Screen Configuration → set 1024×600 for the official 7" display. |
+**Camera not working on Windows:**
+- Detector uses camera index 1 by default (change in `detector.py`)
+- Check Windows Camera Privacy Settings
 
----
+**Python service not connecting:**
+- Verify port 8001 accessible: `curl http://localhost:8001/health`
+- Check CORS in `detector.py` (allow_origins=["*"])
 
-## Security notes
+**Face recognition not loading:**
+- Models served from `health-dashboard/models/` (must be accessible)
+- Check browser console for model load errors
 
-- `server/.env` holds the database credentials and is **never committed**
-  (see `.gitignore`). Copy `.env.example` and fill in your own.
-- Rotate your Neon password if it was ever shared in plain text
-  (Neon console → Roles → Reset password), then update `.env` and
-  restart the service.
-- The dashboard reports face **presence**, not identity — no biometric
-  identification data is stored.
+## License
+
+Internal prototype - Project DELTA

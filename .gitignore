@@ -2,7 +2,26 @@
 server/node_modules/
 server/.env
 api/node_modules/
+health-dashboard/server/node_modules/
+health-dashboard/server/.env
+
+# Python
+human-detection/__pycache__/
+human-detection/*.pyc
+*.pyc
+__pycache__/
+
+# Model weights
+*.pt
+
+# Data files
+detections.csv
+detections.json
 
 # OS junk
 Thumbs.db
 .DS_Store
+
+# Local database
+*.db
+*.sqlite

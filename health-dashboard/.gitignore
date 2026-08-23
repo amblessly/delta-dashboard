@@ -1,0 +1,8 @@
+# Server dependencies & secrets
+server/node_modules/
+server/.env
+api/node_modules/
+
+# OS junk
+Thumbs.db
+.DS_Store
