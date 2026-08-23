@@ -483,6 +483,18 @@ function createSimulatedDataSource() {
       }
       emit();
     },
+
+    /* Bind dashboard readings to a specific student identity
+       ({id,name,age,weightKg}) coming from facial recognition. */
+    setStudent(s) {
+      activeStudent = s || null;
+      presence = !!activeStudent;
+      if (presence) {
+        for (const k of Object.keys(BASELINES)) state[k].value = BASELINES[k];
+        phValue = PH_BASELINE;
+      }
+      emit();
+    },
     getPresence() { return presence; },
     /* Feed a validated colorimetric strip measurement (device.js). */
     pushStripMeasurement,

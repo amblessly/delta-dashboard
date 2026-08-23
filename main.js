@@ -441,9 +441,10 @@ const faceMonitor = window.FaceMonitor.create({
     /* Known student recognized. */
     if (currentStudent && currentStudent.id === student.id) return;
     currentStudent = { ...student };
-    source.setPresence(true);
+    source.setStudent(currentStudent);
     window.DeltaDB.setActiveStudent(currentStudent);
     setAvatarUI({ live: true, scanning: false, detected: true, matched: true });
+    setDebugStatus(`IDENTIFIED: ${student.name} (id=${student.id})`);
     /* (Re)start DB session for this student. */
     endCurrentSession();
     dbSessionId = window.DeltaDB.startSession(currentStudent);
@@ -454,6 +455,7 @@ const faceMonitor = window.FaceMonitor.create({
   onUnknown(descriptor) {
     /* Unknown face → enrollment modal. */
     setAvatarUI({ live: true, scanning: false, detected: true, matched: false });
+    setDebugStatus("UNKNOWN FACE - enrollment modal");
     showEnrollModal(descriptor);
   },
 
@@ -462,23 +464,33 @@ const faceMonitor = window.FaceMonitor.create({
     if (!currentStudent) return;
     endCurrentSession();
     currentStudent = null;
-    source.setPresence(false);
+    source.setStudent(null);
     window.DeltaDB.setActiveStudent(null);
     setAvatarUI({ live: true, scanning: true, detected: false, matched: false });
+    setDebugStatus("NO FACE");
   },
 
   onStatus(st) {
     if (st.state === "RUNNING") {
       setAvatarUI({ live: true, scanning: !st.models, detected: false, matched: false });
+      setDebugStatus(`RUNNING models=${st.models}`);
     } else if (st.state === "ERROR" || st.state === "OFF") {
       setAvatarUI({ live: false, scanning: false, detected: false, matched: false });
       endCurrentSession();
       currentStudent = null;
-      source.setPresence(false);
+      source.setStudent(null);
       window.DeltaDB.setActiveStudent(null);
+      setDebugStatus(`ERROR: ${st.error || st.state}`);
     }
   },
 });
+
+/* Debug status overlay (top-right) */
+const statusBox = document.createElement("div");
+statusBox.id = "debugStatus";
+statusBox.style.cssText = "position:fixed;top:10px;right:10px;z-index:9999;background:#001018;border:1px solid var(--cyan);color:var(--cyan);padding:6px 10px;border-radius:6px;font-family:mono;font-size:11px;pointer-events:none;";
+document.body.appendChild(statusBox);
+function setDebugStatus(msg) { statusBox.textContent = msg; }
 
 /* Init: load students → start camera/face recognition. */
 bootstrapFaceMonitor();
