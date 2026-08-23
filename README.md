@@ -129,11 +129,10 @@ sudo systemctl disable --now delta-kiosk delta-server   # remove autostart
 
 Three tables mirror exactly what the dashboard shows:
 
-| Table | Columns | Meaning |
-|---|---|---|
 | `students` | name, age, weight_kg | Dashboard patient profile |
-| `detection_sessions` | client_key, student_name, started_at, ended_at | One row per face-detection period |
-| `measurements` | electrolytes_pct, hydration_pct, stress_pct, sodium_meq_l, lactate_mmol_l, temperature_c, recorded_at | One row per periodic reading (every 10 s while a face is present) |
+| `detection_sessions` | client_key, **student_id**, student_name, started_at, ended_at | One row per face-detection period |
+| `measurements` | **student_id**, student_name, electrolytes_pct, hydration_pct, stress_pct, sodium_meq_l, lactate_mmol_l, temperature_c, recorded_at | One row per periodic reading (every 10 s while a face is present) |
+| `face_embeddings` | student_id, **embedding (float[] 128)** | Facial recognition enrollment vectors |
 
 Re-apply the schema anytime with `cd server && npm run setup-db`.
 Inspect data via the Neon SQL console or:
@@ -143,29 +142,32 @@ curl http://localhost:8000/api/measurements?limit=10
 ```
 
 API endpoints served by `server.js`:
-`GET /api/health` · `GET /api/student` · `GET /api/measurements?limit=N`
+`GET /api/health` · `GET /api/students` · `GET /api/measurements?limit=N`
 `POST /api/sessions` · `POST /api/sessions/end` · `POST /api/measurements`
+`POST /api/students/enroll`
 
 ---
 
-## How the biometric flow works
+## How it works (facial recognition)
 
 1. On boot, Chromium opens `http://localhost:8000`; the page requests the
    camera (permission is pre-granted by the kiosk flags).
-2. `camera-monitor.js` analyzes frames ~3×/second using a skin-tone +
-   brightness presence heuristic (zero external dependencies — swap in a
-   real face-detection model later without touching anything else).
-3. Presence flips are debounced (3 hits to appear, 4 misses to disappear).
-4. Each flip calls `data.js → setPresence()`:
-   - **detected** → dashboard emits fresh baseline readings
-     (72 % / 54 % / 81 % / 138 / 2.8 / 37.4 °C) plus recommendations
-   - **gone** → everything reads `0 / STANDBY`, recommendations show
-     *NO SIGNAL*
-5. `db.js` writes each session and periodic sample to localStorage **and**
-   POSTs it to the API, which stores it in Neon.
-
-The avatar circle mirrors the camera feed, plays a scanning animation
-while searching, and shows a green ring when a face is locked on.
+2. `camera-monitor.js` loads face-api.js models (TinyFaceDetector +
+   FaceLandmark68Tiny + FaceRecognitionNet) which run in-browser via
+   WASM/JS on the Pi — no Python or server-side processing needed.
+3. Every ~900 ms a frame is analyzed:
+   - Face detected → 128-dimensional embedding extracted
+   - Compared vs enrolled embeddings using Euclidean distance
+   - Distance < 0.5 → **IDENTIFIED** (known student → dashboard shows
+     that student's data automatically)
+   - No match → **UNKNOWN** → enrollment modal pops up:
+     *"NEW STUDENT DETECTED — Enter name"*
+   - No face at all → **NO SIGNAL**, dashboard shows zeros
+4. Enrollment saves the face embedding in the Neon database alongside
+   the student profile. Next time that face appears, it is automatically
+   recognized.
+5. Each detection session and periodic measurement is written to Neon
+   PostgreSQL (with the correct student_id) plus a localStorage fallback.
 
 ---
 
@@ -186,10 +188,14 @@ server/
 raspberry-pi/
   install.sh          system deps + Node + npm + DB schema
   install-services.sh systemd autostart (API + kiosk browser)
-strip-analysis.js     colorimetric strip pipeline (dormant module)
-calibration.js        strip calibration store (dormant)
-device.js             strip device state machine (dormant)
-device-panel.js       strip device UI wiring (dormant)
+face-api.min.js         face-api.js WASM library (offline)
+models/                 face-api.js model weights (3 models)
+face-api.min.js         face-api.js WASM library (offline)
+models/                 face-api.js model weights (3 models)
+strip-analysis.js       colorimetric strip pipeline (dormant module)
+calibration.js          strip calibration store (dormant)
+device.js               strip device state machine (dormant)
+device-panel.js         strip device UI wiring (dormant)
 HEAT-STRESS.md        heat-stress formula documentation
 ```
 

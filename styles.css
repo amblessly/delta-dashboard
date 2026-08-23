@@ -146,6 +146,11 @@ body {
   border-color: var(--green);
   box-shadow: 0 0 10px rgba(52,211,153,.55);
 }
+/* Matched identity: cyan ring + stronger glow. */
+.avatar.matched {
+  border-color: var(--cyan);
+  box-shadow: 0 0 14px rgba(34,211,238,.7);
+}
 
 /* name + labelled age/weight share one line */
 .patient-row {
@@ -410,6 +415,48 @@ body {
   background: var(--cyan); border-radius: 999px;
   transition: width .3s;
 }
+
+/* - Enrollment modal -------------------- */
+.modal {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,.7);
+}
+.modal-box {
+  position: relative; z-index: 1;
+  width: 90%; max-width: 420px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.5);
+}
+.modal-header {
+  font-size: 11px; letter-spacing: 2px; color: var(--amber);
+  margin-bottom: 12px; text-align: center;
+}
+.modal-body p {
+  font-size: 13px; margin: 6px 0; color: var(--text);
+}
+.modal-body input {
+  width: 100%; padding: 10px 12px; margin-top: 8px;
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+  font-size: 14px;
+}
+.modal-actions {
+  display: flex; justify-content: flex-end; gap: 8px;
+  margin-top: 16px;
+}
+.modal-actions button {
+  padding: 8px 16px; border-radius: 6px; font-size: 12px;
+  border: none; cursor: pointer;
+}
+.btn-cancel { background: var(--border); color: var(--text); }
+.btn-primary { background: var(--cyan); color: #001018; font-weight: 700; }
 
 /* Desktop note: the .app container (max-width 460px, margin-inline auto)
    floats centered on the page; the sides stay clean navy so the UI

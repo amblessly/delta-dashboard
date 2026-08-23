@@ -315,13 +315,14 @@ document.querySelectorAll(".tap").forEach(card => {
     card.addEventListener(ev, () => card.classList.remove("pressed")));
 });
 
-/* - Wiring: data source + face monitor + database -------------------- */
+/* - Wiring: data source + face recognition + database -------------------- */
 
-// Swap point for real hardware:
-// const source = createPollingDataSource("/api/vitals");
 const source = window.DashboardData.createSimulatedDataSource();
 
 let lastSnapshot = null;
+
+/* Current student context (drives data source + DB session). */
+let currentStudent = null;
 
 source.start(snapshot => {
   lastSnapshot = snapshot;
@@ -330,24 +331,64 @@ source.start(snapshot => {
   renderRecommendations(snapshot.recommendations);
 });
 
-/* - Avatar camera feed + face-presence detection -------------------- */
+/* ── Enrollment modal ── */
 
-const avatarBox = document.getElementById("avatarBox");
+const enrollModal = document.getElementById("enrollModal");
+const enrollNameInput = document.getElementById("enrollNameInput");
+const enrollConfirm = document.getElementById("enrollConfirm");
+const enrollCancel = document.getElementById("enrollCancel");
+let pendingDescriptor = null;
 
-function setAvatarUI({ live, scanning, detected }) {
-  if (!avatarBox) return;
-  avatarBox.classList.toggle("live", !!live);
-  avatarBox.classList.toggle("scanning", !!scanning);
-  avatarBox.classList.toggle("detected", !!detected);
+function showEnrollModal(descriptor) {
+  pendingDescriptor = descriptor;
+  enrollNameInput.value = "";
+  enrollModal.style.display = "flex";
+  enrollModal.setAttribute("aria-hidden", "false");
+  setTimeout(() => enrollNameInput.focus(), 50);
 }
 
-/* - Database: log sessions + periodic samples -------------------- */
+function hideEnrollModal() {
+  enrollModal.style.display = "none";
+  enrollModal.setAttribute("aria-hidden", "true");
+  pendingDescriptor = null;
+}
 
-let dbSessionId = null;
-let dbSampleTimer = null;
+enrollConfirm.addEventListener("click", async () => {
+  const name = enrollNameInput.value.trim();
+  if (!name) return;
+  hideEnrollModal();
+  await enrollNewStudent(name, pendingDescriptor);
+  pendingDescriptor = null;
+});
+
+enrollCancel.addEventListener("click", () => {
+  hideEnrollModal();
+  faceMonitor.resolveUnknown(null);
+  pendingDescriptor = null;
+});
+
+async function enrollNewStudent(name, descriptor) {
+  const result = await window.DeltaDB.enrollStudent(name, descriptor);
+  if (!result) return;
+  /* Add to face monitor for instant recognition without reload. */
+  faceMonitor.addKnownFace(result.id, name, descriptor);
+  /* Switch to this student immediately. */
+  await switchStudent(result);
+}
+
+/* Switch the whole dashboard context to a student. */
+async function switchStudent(student) {
+  currentStudent = { id: student.id, name: student.name };
+  source.setPresence(true);                 /* show readings */
+  window.DeltaDB.setActiveStudent(currentStudent);
+  endCurrentSession();
+  dbSessionId = window.DeltaDB.startSession(currentStudent);
+  dbPushSample();
+  dbSampleTimer = setInterval(dbPushSample, 10000);
+}
 
 function dbPushSample() {
-  if (!lastSnapshot || !lastSnapshot.presence || !lastSnapshot.metrics) return;
+  if (!lastSnapshot || !currentStudent || !lastSnapshot.metrics) return;
   const m = lastSnapshot.metrics;
   window.DeltaDB.addSample(dbSessionId, {
     electrolytes: m.electrolytes.value,
@@ -359,54 +400,88 @@ function dbPushSample() {
   });
 }
 
-function dbBeginSession(present) {
-  if (present) {
-    dbSessionId = window.DeltaDB.startSession(
-      lastSnapshot && lastSnapshot.student ? lastSnapshot.student.name : null
-    );
-    dbPushSample();
-    dbSampleTimer = setInterval(dbPushSample, 10000);
-  } else if (dbSessionId) {
-    clearInterval(dbSampleTimer);
-    dbSampleTimer = null;
-    window.DeltaDB.endSession(dbSessionId);
-    dbSessionId = null;
-  }
+let dbSessionId = null;
+let dbSampleTimer = null;
+
+function endCurrentSession() {
+  if (dbSampleTimer) { clearInterval(dbSampleTimer); dbSampleTimer = null; }
+  if (dbSessionId) { window.DeltaDB.endSession(dbSessionId); dbSessionId = null; }
 }
 
-/* - Start camera monitor (auto-starts getUserMedia prompt) -------------------- */
+/* ── Avatar camera + face recognition ── */
 
+const avatarBox = document.getElementById("avatarBox");
 const camFeed = document.getElementById("camFeed");
+
+function setAvatarUI({ live, scanning, detected, matched }) {
+  if (!avatarBox) return;
+  avatarBox.classList.toggle("live", !!live);
+  avatarBox.classList.toggle("scanning", !!scanning);
+  avatarBox.classList.toggle("detected", !!detected);
+  avatarBox.classList.toggle("matched", !!matched);
+}
+
+/* ── Load enrolled students into face monitor ── */
+
+async function bootstrapFaceMonitor() {
+  const students = await window.DeltaDB.fetchStudents();
+  if (students && students.length) {
+    faceMonitor.setKnownFaces(students);
+  }
+  /* Start camera + recognition loop. */
+  faceMonitor.start();
+}
+
+/* ── Start face recognition ── */
 
 const faceMonitor = window.FaceMonitor.create({
   videoEl: camFeed,
 
-  onPresence(present) {
-    /* Gate dashboard data layer (data.js). */
-    source.setPresence(present);
+  onIdentified(student) {
+    /* Known student recognized. */
+    if (currentStudent && currentStudent.id === student.id) return;
+    currentStudent = { ...student };
+    source.setPresence(true);
+    window.DeltaDB.setActiveStudent(currentStudent);
+    setAvatarUI({ live: true, scanning: false, detected: true, matched: true });
+    /* (Re)start DB session for this student. */
+    endCurrentSession();
+    dbSessionId = window.DeltaDB.startSession(currentStudent);
+    dbPushSample();
+    dbSampleTimer = setInterval(dbPushSample, 10000);
+  },
 
-    /* Avatar visual state. */
-    setAvatarUI({ live: !!camFeed.srcObject, scanning: !present, detected: present });
+  onUnknown(descriptor) {
+    /* Unknown face → enrollment modal. */
+    setAvatarUI({ live: true, scanning: false, detected: true, matched: false });
+    showEnrollModal(descriptor);
+  },
 
-    /* Database session lifecycle. */
-    dbBeginSession(present);
+  onNoFace() {
+    /* No face at all. */
+    if (!currentStudent) return;
+    endCurrentSession();
+    currentStudent = null;
+    source.setPresence(false);
+    window.DeltaDB.setActiveStudent(null);
+    setAvatarUI({ live: true, scanning: true, detected: false, matched: false });
   },
 
   onStatus(st) {
     if (st.state === "RUNNING") {
-      setAvatarUI({ live: true, scanning: !faceMonitor.isPresent, detected: faceMonitor.isPresent });
-    } else {
-      setAvatarUI({ live: false, scanning: false, detected: false });
-      /* Camera gone / permission denied -> force NO SIGNAL. */
-      if (st.state === "ERROR" || st.state === "OFF") {
-        source.setPresence(false);
-        if (dbSessionId) dbBeginSession(false);
-      }
+      setAvatarUI({ live: true, scanning: !st.models, detected: false, matched: false });
+    } else if (st.state === "ERROR" || st.state === "OFF") {
+      setAvatarUI({ live: false, scanning: false, detected: false, matched: false });
+      endCurrentSession();
+      currentStudent = null;
+      source.setPresence(false);
+      window.DeltaDB.setActiveStudent(null);
     }
   },
 });
 
-faceMonitor.start();
+/* Init: load students → start camera/face recognition. */
+bootstrapFaceMonitor();
 
 tickClock();
 runBootSequence(() => {

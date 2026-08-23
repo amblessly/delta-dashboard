@@ -45,6 +45,16 @@ echo "==> [3/4] Installing npm dependencies..."
 cd "$SERVER_DIR"
 npm install --no-fund --no-audit
 
+# 3b) Face recognition models (face-api.js WASM + weights)
+echo "==> [3b/4] Verifying face-api.js models..."
+cd "$REPO_DIR"
+if [ ! -f face-api.min.js ] || [ ! -d models ]; then
+  echo "    WARNING: face-api.min.js or models/ missing from repo."
+  echo "    Models must be present for facial recognition to work."
+else
+  echo "    face-api.min.js + models/ found OK."
+fi
+
 # 4) Environment + database schema ---------------------------------------
 echo "==> [4/4] Environment + database"
 if [ ! -f .env ]; then

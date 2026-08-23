@@ -1,6 +1,4 @@
 -- Project DELTA dashboard schema (Neon PostgreSQL)
--- Mirrors what the dashboard displays: student profile, detection
--- sessions, and the six live metric values.
 
 CREATE TABLE IF NOT EXISTS students (
   id          SERIAL PRIMARY KEY,
@@ -12,7 +10,7 @@ CREATE TABLE IF NOT EXISTS students (
 
 CREATE TABLE IF NOT EXISTS detection_sessions (
   id           BIGSERIAL PRIMARY KEY,
-  client_key   TEXT UNIQUE,                -- browser-generated session id
+  client_key   TEXT UNIQUE,
   student_id   INT REFERENCES students(id),
   student_name TEXT,
   started_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -22,19 +20,29 @@ CREATE INDEX IF NOT EXISTS idx_sessions_started ON detection_sessions(started_at
 
 CREATE TABLE IF NOT EXISTS measurements (
   id                 BIGSERIAL PRIMARY KEY,
-  session_client_key TEXT,                 -- matches detection_sessions.client_key
+  session_client_key TEXT,
+  student_id         INT REFERENCES students(id),
   student_name       TEXT,
-  electrolytes_pct   NUMERIC(5,1),         -- ELECTROLYTES %
-  hydration_pct      NUMERIC(5,1),         -- HYDRATION %
-  stress_pct         NUMERIC(5,1),         -- STRESS %
-  sodium_meq_l       NUMERIC(6,1),         -- SODIUM Na+ mEq/L
-  lactate_mmol_l     NUMERIC(4,2),         -- LACTATE mmol/L
-  temperature_c      NUMERIC(4,1),         -- TEMPERATURE degC
+  electrolytes_pct   NUMERIC(5,1),
+  hydration_pct      NUMERIC(5,1),
+  stress_pct         NUMERIC(5,1),
+  sodium_meq_l       NUMERIC(6,1),
+  lactate_mmol_l     NUMERIC(4,2),
+  temperature_c      NUMERIC(4,1),
   recorded_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_measurements_recorded ON measurements(recorded_at DESC);
 
--- Seed dashboard student (idempotent)
+-- Face embeddings for facial recognition enrollment
+CREATE TABLE IF NOT EXISTS face_embeddings (
+  id           BIGSERIAL PRIMARY KEY,
+  student_id   INT REFERENCES students(id) ON DELETE CASCADE,
+  embedding    NUMERIC[] NOT NULL,          -- 128-dimensional Float32 vector stored as float[]
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_emb_student ON face_embeddings(student_id);
+
+-- Seed dashboard student (will be linked to face embeddings on first enrollment)
 INSERT INTO students (name, age, weight_kg)
 SELECT 'Princess Ronday', 18, 54.2
 WHERE NOT EXISTS (SELECT 1 FROM students WHERE name = 'Princess Ronday');

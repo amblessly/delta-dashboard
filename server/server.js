@@ -99,16 +99,58 @@ async function handleApi(req, res, url) {
     return sendJSON(res, 200, rows[0] || null);
   }
 
+  /* All students + their enrolled face embeddings (browser matcher bootstrap). */
+  if (p === "/api/students" && req.method === "GET") {
+    const students = await pool.query(
+      "SELECT id, name, age, weight_kg FROM students ORDER BY id");
+    const embs = await pool.query(
+      "SELECT student_id, embedding FROM face_embeddings ORDER BY id");
+    const byStudent = {};
+    for (const e of embs.rows) {
+      (byStudent[e.student_id] = byStudent[e.student_id] || []).push(e.embedding);
+    }
+    return sendJSON(res, 200, students.rows.map(s => ({
+      ...s,
+      embeddings: byStudent[s.id] || [],
+    })));
+  }
+
+  /* Enroll: attach a face embedding to an existing student (by name)
+     or create the student first. Body: {name, embedding:[128 floats]} */
+  if (p === "/api/students/enroll" && req.method === "POST") {
+    const b = await readBody(req);
+    const name = typeof b.name === "string" ? b.name.trim().slice(0, 120) : "";
+    const emb = Array.isArray(b.embedding)
+      ? b.embedding.slice(0, 128).map(v => Number(v))
+      : [];
+    if (!name || emb.length !== 128 || emb.some(v => !Number.isFinite(v))) {
+      return sendJSON(res, 400, { error: "name and 128-float embedding required" });
+    }
+    let student = await pool.query("SELECT id, name, age, weight_kg FROM students WHERE lower(name) = lower($1)", [name]);
+    if (student.rowCount === 0) {
+      student = await pool.query(
+        "INSERT INTO students (name, age, weight_kg) VALUES ($1, $2, $3) RETURNING id, name, age, weight_kg",
+        [name, num(b.age), num(b.weightKg)]);
+    }
+    const sid = student.rows[0].id;
+    await pool.query(
+      "INSERT INTO face_embeddings (student_id, embedding) VALUES ($1, $2)",
+      [sid, emb]);
+    return sendJSON(res, 201, { ...student.rows[0], enrolled: true });
+  }
+
   if (p === "/api/sessions" && req.method === "POST") {
     const body = await readBody(req);
     const key = typeof body.clientKey === "string" ? body.clientKey.slice(0, 64) : null;
     if (!key) return sendJSON(res, 400, { error: "clientKey required" });
     const { rows } = await pool.query(
-      `INSERT INTO detection_sessions (client_key, student_name)
-       VALUES ($1, $2)
+      `INSERT INTO detection_sessions (client_key, student_id, student_name)
+       VALUES ($1, $2, $3)
        ON CONFLICT (client_key) DO UPDATE SET ended_at = NULL
        RETURNING id, client_key, started_at`,
-      [key, body.studentName ? String(body.studentName).slice(0, 120) : null]
+      [key,
+       Number.isInteger(body.studentId) ? body.studentId : null,
+       body.studentName ? String(body.studentName).slice(0, 120) : null]
     );
     return sendJSON(res, 201, rows[0]);
   }
@@ -129,13 +171,14 @@ async function handleApi(req, res, url) {
     const m = b.metrics || {};
     const { rows } = await pool.query(
       `INSERT INTO measurements
-         (session_client_key, student_name,
+         (session_client_key, student_id, student_name,
           electrolytes_pct, hydration_pct, stress_pct,
           sodium_meq_l, lactate_mmol_l, temperature_c)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        RETURNING id, recorded_at`,
       [
         b.sessionClientKey ? String(b.sessionClientKey).slice(0, 64) : null,
+        Number.isInteger(b.studentId) ? b.studentId : null,
         b.studentName ? String(b.studentName).slice(0, 120) : null,
         num(m.electrolytes), num(m.hydration), num(m.stress),
         num(m.sodium), num(m.lactate), num(m.temperature),

@@ -65,10 +65,18 @@ window.DeltaDB = (function () {
 
   /* ── Sessions ──────────────────────────────────────────────────── */
 
-  function startSession(studentId) {
+  /* Current student context for session/sample mirroring.
+     Set by main.js whenever a face is identified/enrolled. */
+  let activeStudent = null;
+  function setActiveStudent(s) { activeStudent = s ? { id: s.id ?? null, name: s.name ?? null } : null; }
+
+  function startSession(student) {
+    if (student !== undefined && student !== null && typeof student === "object") {
+      setActiveStudent(student);
+    }
     const session = {
       id: "s_" + Date.now().toString(36),
-      studentId: studentId || null,
+      studentId: activeStudent ? activeStudent.id : null,
       startedTs: new Date().toISOString(),
       endedTs: null,
     };
@@ -76,7 +84,11 @@ window.DeltaDB = (function () {
     prune();
     save(db);
     /* Mirror to Neon (server.js -> detection_sessions). */
-    apiPost("/api/sessions", { clientKey: session.id, studentName: studentId });
+    apiPost("/api/sessions", {
+      clientKey: session.id,
+      studentId: activeStudent ? activeStudent.id : null,
+      studentName: activeStudent ? activeStudent.name : null,
+    });
     return session.id;
   }
 
@@ -108,10 +120,76 @@ window.DeltaDB = (function () {
     /* Mirror to Neon (server.js -> measurements). */
     apiPost("/api/measurements", {
       sessionClientKey: sessionId,
-      studentName: null,
+      studentId: activeStudent ? activeStudent.id : null,
+      studentName: activeStudent ? activeStudent.name : null,
       metrics,
     });
     return sample;
+  }
+
+  /* ── Students & face embeddings (recognition registry) ────────── */
+
+  const LS_STUDENTS = "delta.students.v1";
+
+  function loadKnownStudents() {
+    try {
+      const raw = localStorage.getItem(LS_STUDENTS);
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) return arr;
+      }
+    } catch (e) { /* corrupted -> reset */ }
+    return [];
+  }
+
+  function saveKnownStudents(list) {
+    try { localStorage.setItem(LS_STUDENTS, JSON.stringify(list)); }
+    catch (e) { console.warn("[DeltaDB] students persist failed:", e); }
+  }
+
+  /* Bootstrap matcher from server; falls back to local cache offline. */
+  async function fetchStudents() {
+    try {
+      const r = await fetch("/api/students");
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const list = await r.json();
+      saveKnownStudents(list);
+      return list;
+    } catch (e) {
+      return loadKnownStudents();   /* offline: last synced cache */
+    }
+  }
+
+  async function enrollStudent(name, embedding) {
+    const payload = { name, embedding };
+    try {
+      const r = await fetch("/api/students/enroll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const saved = await r.json();
+      const list = loadKnownStudents();
+      list.push({ ...saved, embeddings: [embedding] });
+      saveKnownStudents(list);
+      return saved;
+    } catch (e) {
+      /* Offline enrollment: keep locally so recognition still works;
+         server row will be missing until re-enrolled. */
+      const local = {
+        id: -Date.now(),
+        name,
+        age: null,
+        weight_kg: null,
+        embeddings: [embedding],
+        localOnly: true,
+      };
+      const list = loadKnownStudents();
+      list.push(local);
+      saveKnownStudents(list);
+      return local;
+    }
   }
 
   function listSessions() { return [...db.sessions].reverse(); }
@@ -124,5 +202,9 @@ window.DeltaDB = (function () {
     save(db);
   }
 
-  return { startSession, endSession, addSample, listSessions, listSamples, clearAll };
+  return {
+    startSession, endSession, addSample,
+    fetchStudents, enrollStudent,
+    listSessions, listSamples, clearAll
+  };
 })();

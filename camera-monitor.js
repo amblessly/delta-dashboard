@@ -1,51 +1,122 @@
 /* --------------------
-   camera-monitor.js - Camera feed + face-presence detection.
+   camera-monitor.js - Camera + face recognition (identity, not just presence).
 
-   Drives the dashboard's biometric gate:
-     face in view  -> dashboard shows live values
-     no face       -> dashboard zeros out (NO SIGNAL)
+   Pipeline per analysis tick:
+     video frame -> TinyFaceDetector (find face)
+                 -> FaceLandmark68Tiny (alignment)
+                 -> FaceRecognitionNet (128-d embedding)
+                 -> Euclidean distance vs enrolled embeddings
+                      best dist < MATCH_THRESHOLD  -> IDENTIFIED (known student)
+                      face found but no match      -> UNKNOWN   (enrollment prompt)
+                      no face                      -> NO FACE   (dashboard zeros)
 
-   Detection approach (zero dependencies, runs offline):
-   a lightweight presence heuristic over the central frame region -
-   skin-tone pixel ratio (Kovac RGB rule) + brightness sanity check,
-   debounced so brief glitches do not flap the dashboard.
-   The detector is isolated in analyzeFrame() so it can be swapped for
-   a real face-detection model later without touching the UI or data
-   layer. It reports PRESENCE, not identity - no biometric identity
-   claim is made.
+   Uses face-api.js models served locally from ./models so the whole
+   thing works offline on a Raspberry Pi kiosk. Reports IDENTITY only
+   for enrolled students - embeddings are numeric feature vectors, no
+   photos are stored.
    -------------------- */
 
 "use strict";
 
 window.FaceMonitor = (function () {
 
-  const ANALYZE_INTERVAL = 350;   /* ms between frame checks */
-  const W = 96, H = 72;           /* analysis downscale - fast + small */
+  const ANALYZE_INTERVAL = 900;    /* ms between recognition ticks */
+  const INPUT_SIZE = 320;          /* detector input resolution */
 
-  /* Debounce: consecutive frames required to flip state. */
-  const HITS_TO_ENTER = 3;
+  /* Debounce: consecutive results required to flip state. */
+  const HITS_TO_IDENTIFY = 2;
   const MISSES_TO_EXIT = 4;
 
-  /* Presence thresholds for the heuristic. */
-  const SKIN_RATIO_MIN = 0.10;    /* >=10% skin-tone pixels in center */
-  const BRIGHTNESS_MIN = 28;      /* camera not covered / lens capped */
+  /* face-api.js standard: Euclidean distance < ~0.5 => same person. */
+  const MATCH_THRESHOLD = 0.5;
 
-  function create({ videoEl, onPresence, onStatus }) {
+  function create({ videoEl, onIdentified, onUnknown, onNoFace, onStatus }) {
 
     let stream = null;
     let timer = null;
-    let present = false;
-    let hitStreak = 0, missStreak = 0;
-    const status = { state: "OFF", error: null };
+    let modelsReady = false;
 
-    const canvas = document.createElement("canvas");
-    canvas.width = W; canvas.height = H;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    /* Runtime state machine */
+    let currentStudent = null;       /* {id,name,...} or null */
+    let unknownStreak = 0;
+    let identifiedStreak = 0;
+    let lastDescriptor = null;       /* Float32Array(128) of latest face */
+    let enrollLock = false;          /* modal open - pause auto flips */
+
+    /* Enrolled embeddings cache: [{studentId, name, descriptor:Float32Array}] */
+    let knownFaces = [];
+
+    const status = { state: "OFF", error: null, models: false };
 
     function setState(patch) {
       Object.assign(status, patch);
       if (onStatus) onStatus({ ...status });
     }
+
+    /* ── Model loading ──────────────────────────────────────────── */
+
+    async function loadModels() {
+      if (typeof faceapi === "undefined") {
+        setState({ error: "face-api.js not loaded" });
+        return false;
+      }
+      try {
+        await faceapi.nets.tinyFaceDetector.loadFromUri("models");
+        await faceapi.nets.faceLandmark68TinyNet.loadFromUri("models");
+        await faceapi.nets.faceRecognitionNet.loadFromUri("models");
+        modelsReady = true;
+        setState({ models: true, error: null });
+        return true;
+      } catch (e) {
+        console.warn("[FaceMonitor] model load failed:", e);
+        setState({ error: "Model files missing in ./models" });
+        return false;
+      }
+    }
+
+    /* ── Known faces registry ───────────────────────────────────── */
+
+    function setKnownFaces(list) {
+      knownFaces = (list || [])
+        .filter(r => Array.isArray(r.embedding) && r.embedding.length === 128)
+        .map(r => ({
+          studentId: r.studentId,
+          name: r.name,
+          descriptor: new Float32Array(r.embedding),
+        }));
+    }
+
+    function euclidean(a, b) {
+      let sum = 0;
+      for (let i = 0; i < a.length; i++) {
+        const d = a[i] - b[i];
+        sum += d * d;
+      }
+      return Math.sqrt(sum);
+    }
+
+    function matchDescriptor(desc) {
+      let best = null;
+      for (const kf of knownFaces) {
+        const dist = euclidean(desc, kf.descriptor);
+        if (!best || dist < best.dist) best = { dist, studentId: kf.studentId, name: kf.name };
+      }
+      if (best && best.dist < MATCH_THRESHOLD) {
+        return { matched: true, studentId: best.studentId, name: best.name, dist: best.dist };
+      }
+      return { matched: false, dist: best ? best.dist : null };
+    }
+
+    /* Exposed so main.js can attach an enrollment to the right student. */
+    function addKnownFace(studentId, name, embedding) {
+      knownFaces.push({
+        studentId,
+        name,
+        descriptor: new Float32Array(embedding),
+      });
+    }
+
+    /* ── Camera lifecycle ───────────────────────────────────────── */
 
     async function start() {
       if (stream) return true;
@@ -56,7 +127,7 @@ window.FaceMonitor = (function () {
       setState({ state: "STARTING", error: null });
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: { ideal: 320 }, height: { ideal: 240 } },
+          video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
           audio: false,
         });
       } catch (e) {
@@ -67,6 +138,10 @@ window.FaceMonitor = (function () {
       }
       videoEl.srcObject = stream;
       await videoEl.play().catch(() => {});
+
+      await loadModels();
+      if (!modelsReady) { setState({ state: "ERROR", error: status.error }); return false; }
+
       setState({ state: "RUNNING", error: null });
       timer = setInterval(analyzeFrame, ANALYZE_INTERVAL);
       return true;
@@ -76,72 +151,119 @@ window.FaceMonitor = (function () {
       if (timer) { clearInterval(timer); timer = null; }
       if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
       if (videoEl) videoEl.srcObject = null;
-      setPresent(false);
+      currentStudent = null;
+      lastDescriptor = null;
+      emitState();
       setState({ state: "OFF", error: null });
     }
 
-    /* ── Frame analysis ─────────────────────────────────────────── */
+    /* ── Recognition loop ───────────────────────────────────────── */
 
-    function analyzeFrame() {
-      if (!stream || !videoEl.videoWidth) return;
+    async function analyzeFrame() {
+      if (!stream || !videoEl.videoWidth || !modelsReady || enrollLock) return;
+      try {
+        const opts = new faceapi.TinyFaceDetectorOptions({ inputSize: INPUT_SIZE, scoreThreshold: 0.5 });
+        const result = await faceapi
+          .detectSingleFace(videoEl, opts)
+          .withFaceLandmarks(true)
+          .withFaceDescriptor();
 
-      ctx.drawImage(videoEl, 0, 0, W, H);
-      const res = analyzeImageData(ctx.getImageData(0, 0, W, H));
+        if (!result) { handleNoFace(); return; }
 
-      /* Debounced presence flip */
-      if (res.faceLikely) {
-        hitStreak++; missStreak = 0;
-        if (!present && hitStreak >= HITS_TO_ENTER) setPresent(true);
-      } else {
-        missStreak++; hitStreak = 0;
-        if (present && missStreak >= MISSES_TO_EXIT) setPresent(false);
+        const desc = result.descriptor;
+        lastDescriptor = desc;
+
+        const match = matchDescriptor(desc);
+        if (match.matched) handleIdentified(match);
+        else handleUnknown();
+      } catch (e) {
+        console.warn("[FaceMonitor] frame error:", e.message);
       }
     }
 
-    function analyzeImageData(img) {
-      const d = img.data;
-      let skin = 0, bright = 0, n = 0;
+    function handleNoFace() {
+      identifiedStreak = 0;
+      unknownStreak = 0;
+      if (currentStudent) {
+        missCount++;
+        if (missCount >= MISSES_TO_EXIT) {
+          currentStudent = null;
+          lastDescriptor = null;
+          emitState();
+        }
+      } else {
+        missCount = 0;
+        emitState();
+      }
+    }
 
-      /* Central region only - where a face would sit in the kiosk cam. */
-      const x0 = Math.round(W * 0.18), x1 = Math.round(W * 0.82);
-      const y0 = Math.round(H * 0.08), y1 = Math.round(H * 0.92);
+    let missCount = 0;
 
-      for (let y = y0; y < y1; y += 2) {
-        for (let x = x0; x < x1; x += 2) {
-          const i = (y * W + x) * 4;
-          const r = d[i], g = d[i + 1], b = d[i + 2];
-          bright += 0.299 * r + 0.587 * g + 0.114 * b;
-          n++;
-          /* Kovac skin-tone rule (documented heuristic). */
-          if (r > 95 && g > 40 && b > 20 &&
-              (Math.max(r, g, b) - Math.min(r, g, b)) > 15 &&
-              Math.abs(r - g) > 15 && r > g && r > b) {
-            skin++;
-          }
+    function handleIdentified(match) {
+      missCount = 0;
+      unknownStreak = 0;
+      identifiedStreak++;
+
+      const sameStudent = currentStudent && currentStudent.id === match.studentId;
+      if (sameStudent) return;
+
+      if (identifiedStreak >= HITS_TO_IDENTIFY) {
+        currentStudent = { id: match.studentId, name: match.name };
+        identifiedStreak = 0;
+        emitState();
+      }
+    }
+
+    function handleUnknown() {
+      identifiedStreak = 0;
+      if (currentStudent) {
+        /* A face is present but does not match the current student -
+           count misses until we drop them (person changed). */
+        missCount++;
+        if (missCount >= MISSES_TO_EXIT) {
+          currentStudent = null;
+          emitState();
+        }
+        return;
+      }
+      missCount = 0;
+      unknownStreak++;
+      if (unknownStreak >= HITS_TO_IDENTIFY) {
+        unknownStreak = 0;
+        if (onUnknown) {
+          enrollLock = true;   /* wait for main.js enrollment decision */
+          onUnknown(lastDescriptor ? Array.from(lastDescriptor) : null);
         }
       }
-      const skinRatio = n ? skin / n : 0;
-      const avgBright = n ? bright / n : 0;
-      return {
-        skinRatio,
-        avgBright,
-        faceLikely: avgBright >= BRIGHTNESS_MIN && skinRatio >= SKIN_RATIO_MIN,
-      };
     }
 
-    function setPresent(p) {
-      if (present === p) return;
-      present = p;
-      hitStreak = 0; missStreak = 0;
-      if (onPresence) onPresence(p);
+    function emitState() {
+      if (currentStudent && onIdentified) onIdentified({ ...currentStudent });
+      if (!currentStudent && onNoFace) onNoFace();
+    }
+
+    /* Called by main.js after the enrollment modal resolves. */
+    function resolveUnknown(enrolledStudentOrNull) {
+      enrollLock = false;
+      unknownStreak = 0;
+      if (enrolledStudentOrNull) {
+        currentStudent = { ...enrolledStudentOrNull };
+        emitState();
+      } else {
+        emitState(); /* back to scanning */
+      }
     }
 
     return {
-      start, stop, analyzeImageData,
-      get isPresent() { return present; },
+      start, stop, analyzeFrame,
+      setKnownFaces, addKnownFace, resolveUnknown,
+      _euclidean: euclidean, _matchDescriptor: matchDescriptor,
+      get isPresent() { return !!currentStudent; },
+      get student() { return currentStudent ? { ...currentStudent } : null; },
       get status() { return { ...status }; },
+      get lastDescriptor() { return lastDescriptor ? Array.from(lastDescriptor) : null; },
     };
   }
 
-  return { create };
+  return { create, MATCH_THRESHOLD };
 })();

@@ -157,6 +157,23 @@
     </div>
   </section>
 
+  <!-- ------ ENROLLMENT MODAL (hidden by default) ------ -->
+  <div class="modal" id="enrollModal" role="dialog" aria-modal="true" aria-hidden="true" style="display:none">
+    <div class="modal-backdrop"></div>
+    <div class="modal-box">
+      <div class="modal-header mono">NEW STUDENT DETECTED</div>
+      <div class="modal-body">
+        <p>Face recognized as <b id="enrollNamePreview">unknown</b>.</p>
+        <p>Enter student name to enroll:</p>
+        <input type="text" id="enrollNameInput" placeholder="e.g., Juan Dela Cruz" autocomplete="off" spellcheck="false">
+        <div class="modal-actions">
+          <button class="btn-cancel" id="enrollCancel">Cancel</button>
+          <button class="btn-primary" id="enrollConfirm">Enroll</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ------ BOOT OVERLAY ------ -->
   <div class="boot-overlay" id="bootOverlay">
     <div class="boot-box">
@@ -170,6 +187,7 @@
   </div>
 
 </div>
+<script src="face-api.min.js"></script>
 <script src="data.js"></script>
 <script src="db.js"></script>
 <script src="camera-monitor.js"></script>
