@@ -140,16 +140,18 @@ window.FaceMonitor = (function () {
           ? "Camera permission denied" : "Camera unavailable" });
         return false;
       }
+      console.log("[FaceMonitor] got stream:", stream);
       videoEl.srcObject = stream;
+      console.log("[FaceMonitor] srcObject set, videoEl:", videoEl);
 
       /* Wait for video metadata (dimensions) before starting analysis. */
       await new Promise(resolve => {
         if (videoEl.readyState >= 1) return resolve();
         videoEl.onloadedmetadata = () => resolve();
       });
-      await videoEl.play().catch(() => {});
+      await videoEl.play().catch((e) => console.warn("[FaceMonitor] play() failed:", e));
 
-      console.log("[FaceMonitor] video readyState:", videoEl.readyState, "videoWidth:", videoEl.videoWidth, "videoHeight:", videoEl.videoHeight);
+      console.log("[FaceMonitor] video readyState:", videoEl.readyState, "videoWidth:", videoEl.videoWidth, "videoHeight:", videoEl.videoHeight, "paused:", videoEl.paused, "ended:", videoEl.ended);
 
       await loadModels();
       if (!modelsReady) { setState({ state: "ERROR", error: status.error }); return false; }
