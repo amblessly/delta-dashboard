@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Project DELTA - Student Health Dashboard</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- ------ TOP HEADER ------ -->
+  <header class="header card">
+    <div class="header-left">
+
+      <div class="title-block">
+        <h1 class="title">Project DELTA<span class="title-sep">:</span> <span class="title-sub">Student Health Dashboard</span></h1>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="clock-block">
+        <div class="clock mono" id="clock">--:--:--</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ------ PATIENT INFORMATION ------ -->
+  <section class="patient card" aria-label="Patient information">
+    <div class="avatar" id="avatarBox" role="img" aria-label="User camera feed">
+      <video id="camFeed" autoplay playsinline muted></video>
+      <span class="scanline" id="scanLine"></span>
+      <svg class="avatar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/>
+      </svg>
+    </div>
+    <div class="patient-row">
+      <span class="patient-name" data-role="patient-name">Princess Ronday</span>
+      <div class="p-stat">
+        <span class="p-stat-key mono">AGE</span>
+        <span class="p-stat-val mono"><b data-role="patient-age">18</b> yrs</span>
+      </div>
+      <div class="p-stat">
+        <span class="p-stat-key mono">WEIGHT</span>
+        <span class="p-stat-val mono"><b data-role="patient-weight">54.2</b> kg</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------ VITAL SIGNS (3-COLUMN) ------ -->
+  <section class="vitals" aria-label="Vital signs">
+    <article class="card metric-card tap" id="card-electrolytes" data-metric="electrolytes">
+      <div class="metric-top">
+        <span class="metric-label mono">ELECTROLYTES</span>
+        <span class="status-pill good" data-role="status">GOOD</span>
+      </div>
+      <div class="metric-value-row">
+        <span class="metric-value" data-role="value">--</span>
+        <span class="metric-unit">%</span>
+      </div>
+      <div class="bar"><div class="bar-fill cyan" data-role="bar" style="width:0%"></div></div>
+    </article>
+
+    <article class="card metric-card tap" id="card-hydration" data-metric="hydration">
+      <div class="metric-top">
+        <span class="metric-label mono">HYDRATION</span>
+        <span class="status-pill low" data-role="status">LOW</span>
+      </div>
+      <div class="metric-value-row">
+        <span class="metric-value" data-role="value">--</span>
+        <span class="metric-unit">%</span>
+      </div>
+      <div class="bar"><div class="bar-fill teal" data-role="bar" style="width:0%"></div></div>
+    </article>
+
+    <article class="card metric-card tap" id="card-stress" data-metric="stress">
+      <div class="metric-top">
+        <span class="metric-label mono">STRESS</span>
+        <span class="status-pill high" data-role="status">HIGH</span>
+      </div>
+      <div class="metric-value-row">
+        <span class="metric-value" data-role="value">--</span>
+        <span class="metric-unit">%</span>
+      </div>
+      <div class="bar"><div class="bar-fill purple" data-role="bar" style="width:0%"></div></div>
+    </article>
+  </section>
+
+  <!-- ------ ELECTROLYTE BREAKDOWN ------ -->
+  <section class="breakdown-section" aria-label="Electrolyte breakdown">
+    <div class="rec-card card">
+      <div class="rec-head">
+        <span class="rec-head-title mono">ELECTROLYTE BREAKDOWN</span>
+      </div>
+      <div class="bd-list">
+        <article class="bd-item tap" id="card-sodium" data-metric="sodium">
+          <div class="metric-top">
+            <span class="metric-label mono">SODIUM NA<sup>+</sup></span>
+            <span class="status-pill good" data-role="status">NORMAL</span>
+          </div>
+          <div class="metric-value-row tight">
+            <span class="metric-value sm" data-role="value">--</span>
+            <span class="metric-unit sm">mEq/L</span>
+          </div>
+          <div class="bar thin"><div class="bar-fill cyan" data-role="bar" style="width:0%"></div></div>
+        </article>
+
+        <article class="bd-item tap" id="card-lactate" data-metric="lactate">
+          <div class="metric-top">
+            <span class="metric-label mono">LACTATE</span>
+            <span class="status-pill elevated" data-role="status">ELEVATED</span>
+          </div>
+          <div class="metric-value-row tight">
+            <span class="metric-value sm" data-role="value">--</span>
+            <span class="metric-unit sm">mmol/L</span>
+          </div>
+          <div class="bar thin"><div class="bar-fill amber" data-role="bar" style="width:0%"></div></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- - SECONDARY HEALTH METRICS - -->
+  <section class="secondary" aria-label="Secondary health metrics">
+    <article class="card metric-card compact tap" id="card-stress2" data-metric="stress">
+        <div class="metric-top">
+          <span class="metric-label mono"><svg class="mini-ic purple" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M12 5v13"/></svg>STRESS</span>
+          <span class="status-pill high" data-role="status">HIGH</span>
+        </div>
+        <div class="metric-value-row tight">
+          <span class="metric-value sm" data-role="value">--</span>
+          <span class="metric-unit">%</span>
+        </div>
+        <div class="bar"><div class="bar-fill purple" data-role="bar" style="width:0%"></div></div>
+      </article>
+
+      <article class="card metric-card compact tap" id="card-temp" data-metric="temperature">
+        <div class="metric-top">
+          <span class="metric-label mono"><svg class="mini-ic amber" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4v10.5a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/><path d="M12 9v6"/></svg>TEMPERATURE</span>
+          <span class="status-pill slight" data-role="status">SLIGHT</span>
+        </div>
+        <div class="metric-value-row tight">
+          <span class="metric-value sm" data-role="value">--</span>
+          <span class="metric-unit">&deg;C</span>
+        </div>
+        <div class="bar"><div class="bar-fill amber" data-role="bar" style="width:0%"></div></div>
+      </article>
+  </section>
+
+  <!-- ------ RECOMMENDATIONS ------ -->
+  <section class="recs-section" aria-label="Recommendations">
+    <div class="rec-card card">
+      <div class="rec-head">
+        <span class="rec-head-title mono"><svg class="rec-hb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12h3l2.5-6 4 13 2.5-7H22"/></svg>RECOMMENDATIONS</span>
+        <span class="rec-head-tag mono"><i class="ai-dot" aria-hidden="true"></i>AI LIVE</span>
+      </div>
+      <div class="rec-list" id="recList"><!-- populated by main.js --></div>
+    </div>
+  </section>
+
+  <!-- ------ BOOT OVERLAY ------ -->
+  <div class="boot-overlay" id="bootOverlay">
+    <div class="boot-box">
+      <svg class="pulse-line" viewBox="0 0 120 28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M0 14h30l6-11 8 22 7-15 5 4h20l5-7 6 7h33" pathLength="100"/>
+      </svg>
+      <div class="mono boot-title">PROJECT DELTA &middot; BIOMETRIC TERMINAL</div>
+      <div class="mono boot-status" id="bootStatus">ACQUIRING SENSOR SIGNAL&hellip;</div>
+      <div class="boot-bar"><div class="boot-bar-fill" id="bootBar"></div></div>
+    </div>
+  </div>
+
+</div>
+<script src="data.js"></script>
+<script src="db.js"></script>
+<script src="camera-monitor.js"></script>
+<script src="main.js"></script>
+</body>
+</html>
+
+
+
+
+
