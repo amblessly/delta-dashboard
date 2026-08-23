@@ -141,6 +141,12 @@ window.FaceMonitor = (function () {
         return false;
       }
       videoEl.srcObject = stream;
+
+      /* Wait for video metadata (dimensions) before starting analysis. */
+      await new Promise(resolve => {
+        if (videoEl.readyState >= 1) return resolve();
+        videoEl.onloadedmetadata = () => resolve();
+      });
       await videoEl.play().catch(() => {});
 
       await loadModels();
