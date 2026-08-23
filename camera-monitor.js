@@ -60,16 +60,20 @@ window.FaceMonitor = (function () {
         setState({ error: "face-api.js not loaded" });
         return false;
       }
+      /* Use absolute path so it works on Vercel (any subpath deployment) */
+      const base = (typeof window !== "undefined" && window.location?.origin)
+        ? window.location.origin + "/models"
+        : "/models";
       try {
-        await faceapi.nets.tinyFaceDetector.loadFromUri("models");
-        await faceapi.nets.faceLandmark68TinyNet.loadFromUri("models");
-        await faceapi.nets.faceRecognitionNet.loadFromUri("models");
+        await faceapi.nets.tinyFaceDetector.loadFromUri(base);
+        await faceapi.nets.faceLandmark68TinyNet.loadFromUri(base);
+        await faceapi.nets.faceRecognitionNet.loadFromUri(base);
         modelsReady = true;
         setState({ models: true, error: null });
         return true;
       } catch (e) {
         console.warn("[FaceMonitor] model load failed:", e);
-        setState({ error: "Model files missing in ./models" });
+        setState({ error: "Model files missing at " + base });
         return false;
       }
     }
