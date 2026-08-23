@@ -66,7 +66,7 @@ window.FaceMonitor = (function () {
         : "/models";
       try {
         await faceapi.nets.tinyFaceDetector.loadFromUri(base);
-        await faceapi.nets.faceLandmark68TinyNet.loadFromUri(base);
+        await faceapi.nets.faceLandmark68Net.loadFromUri(base);
         await faceapi.nets.faceRecognitionNet.loadFromUri(base);
         modelsReady = true;
         setState({ models: true, error: null });
