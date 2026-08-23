@@ -160,8 +160,8 @@ window.DeltaDB = (function () {
     }
   }
 
-  async function enrollStudent(name, embedding) {
-    const payload = { name, embedding };
+  async function enrollStudent(name, embedding, age, weightKg) {
+    const payload = { name, embedding, age, weightKg };
     try {
       const r = await fetch("/api/students/enroll", {
         method: "POST",
@@ -180,8 +180,8 @@ window.DeltaDB = (function () {
       const local = {
         id: -Date.now(),
         name,
-        age: null,
-        weight_kg: null,
+        age: age || null,
+        weight_kg: weightKg || null,
         embeddings: [embedding],
         localOnly: true,
       };

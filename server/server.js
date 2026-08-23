@@ -116,7 +116,7 @@ async function handleApi(req, res, url) {
   }
 
   /* Enroll: attach a face embedding to an existing student (by name)
-     or create the student first. Body: {name, embedding:[128 floats]} */
+     or create the student first. Body: {name, embedding:[128 floats], age?, weightKg?} */
   if (p === "/api/students/enroll" && req.method === "POST") {
     const b = await readBody(req);
     const name = typeof b.name === "string" ? b.name.trim().slice(0, 120) : "";
@@ -131,6 +131,25 @@ async function handleApi(req, res, url) {
       student = await pool.query(
         "INSERT INTO students (name, age, weight_kg) VALUES ($1, $2, $3) RETURNING id, name, age, weight_kg",
         [name, num(b.age), num(b.weightKg)]);
+    } else {
+      /* Update age/weight if provided */
+      const updates = [];
+      const params = [name];
+      if (num(b.age) != null) {
+        updates.push("age = $" + (params.length + 1));
+        params.push(num(b.age));
+      }
+      if (num(b.weightKg) != null) {
+        updates.push("weight_kg = $" + (params.length + 1));
+        params.push(num(b.weightKg));
+      }
+      if (updates.length > 0) {
+        await pool.query(
+          "UPDATE students SET " + updates.join(", ") + " WHERE lower(name) = lower($1)",
+          params
+        );
+        student = await pool.query("SELECT id, name, age, weight_kg FROM students WHERE lower(name) = lower($1)", [name]);
+      }
     }
     const sid = student.rows[0].id;
     await pool.query(

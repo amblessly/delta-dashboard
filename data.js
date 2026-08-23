@@ -227,10 +227,9 @@ function fmt(v, dec = 0) {
 
 /* - Simulated data source - */
 
-/* Student profile (reference/demo values from the source document).
-   Replace from real records when available - the UI reads this
-   straight from the snapshot. */
-const STUDENT = {
+/* Default student profile (reference/demo values from the source document).
+   Replaced by recognized student data when available. */
+const DEFAULT_STUDENT = {
   name: "Princess Ronday",
   age: 18,
   weightKg: 54.2,
@@ -358,7 +357,7 @@ function createSimulatedDataSource() {
       return {
         link: "STANDBY",
         overall: { key: "standby", label: "NO SIGNAL" },
-        student: STUDENT,
+        student: activeStudent || DEFAULT_STUDENT,
         heatStress: { pct: 0, level: "low", label: "STANDBY", inputs: { T: 0, E: 0, L: 0 } },
         ph: {
           value: 0,
@@ -405,7 +404,7 @@ function createSimulatedDataSource() {
     return {
       link: "OK",
       overall: OVERALL_RULE(metrics),
-      student: STUDENT,
+      student: activeStudent || DEFAULT_STUDENT,
       heatStress,
       ph,
       metrics,
@@ -486,6 +485,7 @@ function createSimulatedDataSource() {
 
     /* Bind dashboard readings to a specific student identity
        ({id,name,age,weightKg}) coming from facial recognition. */
+    let activeStudent = null;
     setStudent(s) {
       activeStudent = s || null;
       presence = !!activeStudent;

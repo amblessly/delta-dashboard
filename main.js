@@ -335,6 +335,8 @@ source.start(snapshot => {
 
 const enrollModal = document.getElementById("enrollModal");
 const enrollNameInput = document.getElementById("enrollNameInput");
+const enrollAgeInput = document.getElementById("enrollAgeInput");
+const enrollWeightInput = document.getElementById("enrollWeightInput");
 const enrollConfirm = document.getElementById("enrollConfirm");
 const enrollCancel = document.getElementById("enrollCancel");
 let pendingDescriptor = null;
@@ -342,6 +344,8 @@ let pendingDescriptor = null;
 function showEnrollModal(descriptor) {
   pendingDescriptor = descriptor;
   enrollNameInput.value = "";
+  enrollAgeInput.value = "";
+  enrollWeightInput.value = "";
   enrollModal.style.display = "flex";
   enrollModal.setAttribute("aria-hidden", "false");
   setTimeout(() => enrollNameInput.focus(), 50);
@@ -355,9 +359,12 @@ function hideEnrollModal() {
 
 enrollConfirm.addEventListener("click", async () => {
   const name = enrollNameInput.value.trim();
+  const age = parseInt(enrollAgeInput.value, 10);
+  const weightKg = parseFloat(enrollWeightInput.value);
   if (!name) return;
+  const descriptor = pendingDescriptor;
   hideEnrollModal();
-  await enrollNewStudent(name, pendingDescriptor);
+  await enrollNewStudent(name, descriptor, age, weightKg);
   pendingDescriptor = null;
 });
 
@@ -367,8 +374,8 @@ enrollCancel.addEventListener("click", () => {
   pendingDescriptor = null;
 });
 
-async function enrollNewStudent(name, descriptor) {
-  const result = await window.DeltaDB.enrollStudent(name, descriptor);
+async function enrollNewStudent(name, descriptor, age, weightKg) {
+  const result = await window.DeltaDB.enrollStudent(name, descriptor, age, weightKg);
   if (!result) return;
   /* Add to face monitor for instant recognition without reload. */
   faceMonitor.addKnownFace(result.id, name, descriptor);
@@ -378,8 +385,9 @@ async function enrollNewStudent(name, descriptor) {
 
 /* Switch the whole dashboard context to a student. */
 async function switchStudent(student) {
-  currentStudent = { id: student.id, name: student.name };
+  currentStudent = { id: student.id, name: student.name, age: student.age, weightKg: student.weight_kg || student.weightKg };
   source.setPresence(true);                 /* show readings */
+  source.setStudent(currentStudent);        /* pass age/weight to data source */
   window.DeltaDB.setActiveStudent(currentStudent);
   endCurrentSession();
   dbSessionId = window.DeltaDB.startSession(currentStudent);
@@ -450,8 +458,9 @@ const faceMonitor = window.FaceMonitor.create({
   onIdentified(student) {
     /* Known student recognized. */
     if (currentStudent && currentStudent.id === student.id) return;
-    currentStudent = { ...student };
-    source.setStudent(currentStudent);
+    currentStudent = { id: student.id, name: student.name, age: student.age, weightKg: student.weight_kg || student.weightKg };
+    source.setPresence(true);
+    source.setStudent(currentStudent);        /* pass age/weight to data source */
     window.DeltaDB.setActiveStudent(currentStudent);
     setAvatarUI({ live: true, scanning: false, detected: true, matched: true });
     setDebugStatus(`IDENTIFIED: ${student.name} (id=${student.id})`);
