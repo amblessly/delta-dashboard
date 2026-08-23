@@ -1,435 +1,1740 @@
-# Project DELTA
+# Project DELTA — Student Health Dashboard
 
-**Project DELTA** is an AI-powered health and safety monitoring system designed for real-time human detection, face recognition, and health-related monitoring using computer vision.
+A biometric student health monitoring system combining **YOLOv8 human detection**, **face recognition**, **student profiles**, and a personalized health dashboard.
 
-The system combines a Raspberry Pi, camera, touchscreen dashboard, Python/OpenCV, YOLO, face recognition, Node.js, and PostgreSQL to provide a centralized monitoring experience.
+Project DELTA is designed to run with a **Raspberry Pi camera + Python detection service** while the dashboard and database can run separately on a laptop, local server, or hosted environment.
 
 ---
 
-## Features
+## Table of Contents
 
-* Real-time human detection using YOLO
-* Face recognition for enrolled users
-* Student/person identification
-* Face embedding storage using PostgreSQL
-* Real-time camera monitoring
-* Health and safety monitoring dashboard
-* Touchscreen-optimized interface
+* [Overview](#overview)
+* [System Architecture](#system-architecture)
+* [How the System Works](#how-the-system-works)
+* [Project Structure](#project-structure)
+* [Requirements](#requirements)
+* [Local Development](#local-development)
+* [Raspberry Pi Deployment](#raspberry-pi-deployment)
+* [Connecting Raspberry Pi to the Dashboard](#connecting-raspberry-pi-to-the-dashboard)
+* [Database Setup](#database-setup)
+* [Face Recognition Setup](#face-recognition-setup)
+* [Running the Complete System](#running-the-complete-system)
+* [Auto-Start on Raspberry Pi Boot](#auto-start-on-raspberry-pi-boot)
+* [API Endpoints](#api-endpoints)
+* [Network Configuration](#network-configuration)
+* [Troubleshooting](#troubleshooting)
+* [Security Notes](#security-notes)
+* [License](#license)
+
+---
+
+# Overview
+
+Project DELTA is a student health monitoring prototype that combines:
+
+* YOLOv8 human detection
+* Raspberry Pi camera monitoring
+* Browser-based face recognition
+* Student enrollment
+* Age and weight-based student profiles
+* Personalized health dashboard
+* PostgreSQL database using Neon
+* Session tracking
+* Vital-sign measurements
 * Raspberry Pi deployment
-* Node.js backend/API
-* Python-based computer vision services
-* PostgreSQL database integration
+
+The system separates **human detection** from the dashboard.
+
+The Raspberry Pi handles the camera and YOLOv8 detection, while the dashboard communicates with the Raspberry Pi through HTTP.
 
 ---
 
-## System Architecture
-
-The system is designed to run primarily on a **Raspberry Pi 4/5** connected to a camera and a 7-inch touchscreen display.
+# System Architecture
 
 ```text
-                    ┌─────────────────────────┐
-                    │       Camera            │
-                    └────────────┬────────────┘
-                                 │
-                                 ▼
-                    ┌─────────────────────────┐
-                    │    Raspberry Pi 4/5     │
-                    │                         │
-                    │  Python + OpenCV        │
-                    │  YOLO Human Detection   │
-                    │  Face Recognition       │
-                    │                         │
-                    │  Node.js Server         │
-                    └────────────┬────────────┘
-                                 │
-                                 ▼
-                    ┌─────────────────────────┐
-                    │   Web Dashboard         │
-                    │                         │
-                    │   7" Touchscreen        │
-                    │   1024 × 600            │
-                    └────────────┬────────────┘
-                                 │
-                                 ▼
-                    ┌─────────────────────────┐
-                    │     PostgreSQL          │
-                    │                         │
-                    │ Student/User Metadata   │
-                    │ Face Embeddings         │
-                    └─────────────────────────┘
+                         ┌──────────────────────────┐
+                         │       Neon PostgreSQL     │
+                         │                          │
+                         │ students                 │
+                         │ face_embeddings          │
+                         │ detection_sessions       │
+                         │ measurements             │
+                         └────────────▲─────────────┘
+                                      │
+                                      │ PostgreSQL
+                                      │
+                         ┌────────────┴─────────────┐
+                         │      Node.js Server      │
+                         │                          │
+                         │ Dashboard + REST API     │
+                         │ Port 8000                │
+                         └────────────▲─────────────┘
+                                      │
+                                      │ HTTP
+                                      │
+                         ┌────────────┴─────────────┐
+                         │      Web Dashboard       │
+                         │                          │
+                         │ face-api.js              │
+                         │ Student profiles         │
+                         │ Health dashboard         │
+                         └────────────▲─────────────┘
+                                      │
+                                      │
+                              /api/human/present
+                                      │
+                                      │ LAN
+                                      ▼
+                    ┌──────────────────────────────────┐
+                    │          Raspberry Pi             │
+                    │                                  │
+                    │  Python + FastAPI                │
+                    │  YOLOv8 Human Detection          │
+                    │  Port 8001                       │
+                    │                                  │
+                    │          Camera                  │
+                    └──────────────────────────────────┘
 ```
 
 ---
 
-## Project Structure
+# How the System Works
+
+The complete flow is:
 
 ```text
-Project-DELTA/
+Raspberry Pi boots
+        ↓
+Python detection service starts
+        ↓
+Camera starts
+        ↓
+YOLOv8 detects people
+        ↓
+Detection API becomes available
+        ↓
+Dashboard connects to Raspberry Pi
+        ↓
+Dashboard polls /api/human/present
+        ↓
+Human detected
+        ↓
+Face recognition runs in browser
+        ↓
+Known face?
+     /       \
+   YES       NO
+    ↓         ↓
+Load       Enrollment
+profile      modal
+    ↓         ↓
+    └────┬────┘
+         ↓
+Student profile loaded
+         ↓
+Personalized dashboard displayed
+         ↓
+Measurements saved to Neon PostgreSQL
+```
+
+---
+
+# Project Structure
+
+The repository currently uses the following structure:
+
+```text
+delta-dashboard/
 │
 ├── api/
-│   └── API-related files
 │
 ├── health-dashboard/
-│   └── Dashboard frontend
 │
 ├── human-detection/
-│   └── Python human detection system
+│   ├── detector.py
+│   ├── requirements.txt
+│   └── start.bat
 │
 ├── models/
-│   └── AI/ML model files
+│   └── face-api.js models
+│
+├── raspberry-pi/
 │
 ├── server/
-│   └── Node.js backend/server
+│   ├── server.js
+│   ├── schema.sql
+│   └── .env
 │
 ├── .gitignore
-├── README.md
-└── package.json
+├── HEAT-STRESS.md
+├── calibration.js
+├── camera-monitor.js
+├── data.js
+├── db.js
+├── device-panel.js
+├── device.js
+├── face-api.min.js
+├── index.html
+├── main.js
+├── strip-analysis.js
+├── styles.css
+└── vercel.json
 ```
 
-> The structure above reflects the current repository organization. Update individual entries if files are moved or renamed during development.
+> Keep this section updated whenever the repository structure changes.
 
 ---
 
-## Technology Stack
+# Requirements
 
-### Frontend
+## Hardware
 
-* HTML
-* CSS
-* JavaScript
-* Responsive web interface
-* Touchscreen-optimized UI
-
-### Backend
-
-* Node.js
-* REST API
-* PostgreSQL
-
-### Computer Vision
-
-* Python
-* OpenCV
-* YOLO
-* Face recognition
-* Face embeddings
-
-### Hardware
+### Minimum
 
 * Raspberry Pi 4 or Raspberry Pi 5
-* 7-inch 1024×600 IPS capacitive touchscreen
-* Camera
+* Raspberry Pi-compatible camera or USB webcam
 * MicroSD card
 * Power supply
 * Network connection
+* Laptop/desktop for development and dashboard hosting
+
+### Recommended
+
+* Raspberry Pi 5
+* 4GB RAM or higher
+* Raspberry Pi Camera Module or compatible USB camera
+* Stable Wi-Fi or Ethernet connection
+* Active cooling
 
 ---
 
-## Human Detection
+# Software Requirements
 
-The human detection module uses **YOLO** together with OpenCV to process camera frames in real time.
+## Raspberry Pi
 
-The detection pipeline is:
+* Raspberry Pi OS
+* Python 3.10+
+* pip
+* virtualenv
+* OpenCV
+* Ultralytics
+* FastAPI
+* Uvicorn
 
-```text
-Camera
-   ↓
-Video Frame
-   ↓
-OpenCV
-   ↓
-YOLO Detection
-   ↓
-Human Detection
-   ↓
-Detection Result
-   ↓
-Node.js / Dashboard
+## Dashboard Server
+
+* Node.js 18+
+* npm
+* Neon PostgreSQL
+
+## Browser
+
+A modern browser with:
+
+* JavaScript enabled
+* Camera permission
+* WebAssembly support
+
+---
+
+# Local Development
+
+Local development allows you to test the system before deploying it to the Raspberry Pi.
+
+---
+
+## Step 1 — Clone the Repository
+
+```bash
+git clone https://github.com/amblessly/delta-dashboard.git
+cd delta-dashboard
 ```
 
-The detection system is designed to run locally on the Raspberry Pi.
+---
+
+# Step 2 — Set Up the Python Detection Service
+
+Open a terminal:
+
+```bash
+cd human-detection
+```
+
+Create a virtual environment:
+
+```bash
+python -m venv venv
+```
+
+Activate it on Windows:
+
+```bash
+venv\Scripts\activate
+```
+
+Activate it on Linux/macOS:
+
+```bash
+source venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
 
 ---
 
-## Face Recognition
+# Step 3 — Start the Human Detection Service
 
-Project DELTA also supports face recognition for identifying enrolled users.
+Run:
 
-The general process is:
+```bash
+python detector.py
+```
+
+The service should run on:
 
 ```text
+http://localhost:8001
+```
+
+Test the service:
+
+```bash
+curl http://localhost:8001/health
+```
+
+Expected response:
+
+```json
+{
+  "status": "ok",
+  "service": "human-detection"
+}
+```
+
+---
+
+# Step 4 — Set Up the Node.js Server
+
+Open another terminal.
+
+From the repository root:
+
+```bash
+cd server
+```
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Create the environment file:
+
+```text
+server/.env
+```
+
+Add:
+
+```env
+DATABASE_URL=postgresql://user:password@host/database?sslmode=require
+PORT=8000
+```
+
+Replace the database URL with your actual Neon PostgreSQL connection string.
+
+---
+
+# Step 5 — Start the Dashboard Server
+
+Run:
+
+```bash
+npm start
+```
+
+The dashboard server should be available at:
+
+```text
+http://localhost:8000
+```
+
+Open the address in your browser.
+
+---
+
+# Raspberry Pi Deployment
+
+This section explains how to move the human-detection system from your computer to a Raspberry Pi.
+
+The Raspberry Pi does **not** need to run the entire dashboard.
+
+The recommended setup is:
+
+```text
+Raspberry Pi
+    ↓
 Camera
-   ↓
-Face Detection
-   ↓
-Face Encoding
-   ↓
-Face Embedding
-   ↓
-Database Comparison
-   ↓
-User Identification
-   ↓
+    ↓
+Python + YOLOv8
+    ↓
+Port 8001
+```
+
+while the dashboard can remain on your laptop/server:
+
+```text
+Laptop / Server
+    ↓
+Node.js
+    ↓
+Port 8000
+    ↓
 Dashboard
 ```
 
-Face embeddings are stored in PostgreSQL and associated with the corresponding enrolled user.
-
-For security and privacy, biometric embeddings should only be returned through protected backend endpoints when required by the application.
+Both devices communicate over the same network.
 
 ---
 
-## Dashboard
+# Step 1 — Prepare the Raspberry Pi
 
-The dashboard provides a centralized interface for viewing system information and detection results.
+Boot the Raspberry Pi and connect it to the network.
 
-The interface is designed for a:
-
-**7-inch 1024×600 touchscreen display**
-
-The dashboard is developed and tested in a desktop browser first before being deployed to the Raspberry Pi.
-
-### Display Target
-
-```text
-┌──────────────────────────────────────────┐
-│              PROJECT DELTA               │
-│                                          │
-│   ┌──────────────────────────────────┐   │
-│   │                                  │   │
-│   │        Live Camera Feed          │   │
-│   │                                  │   │
-│   └──────────────────────────────────┘   │
-│                                          │
-│   Detection       Recognition            │
-│   Status          Status                 │
-│                                          │
-│   [ Dashboard ] [ People ] [ Settings ] │
-│                                          │
-└──────────────────────────────────────────┘
-
-          1024 × 600 Touchscreen
-```
-
----
-
-## Hardware Deployment
-
-The intended deployment architecture is:
-
-```text
-Power ON
-   ↓
-Raspberry Pi boots
-   ↓
-Linux / Raspberry Pi OS starts
-   ↓
-Project DELTA services start
-   ↓
-Python detection service starts
-   ↓
-Node.js server starts
-   ↓
-Dashboard launches
-   ↓
-7" Touchscreen displays the interface
-```
-
-The Raspberry Pi acts as the primary computing device for the deployed system.
-
----
-
-## Local Development
-
-During development, the frontend, backend, and computer vision components can be tested separately on a development computer.
-
-A typical development workflow is:
-
-```text
-Developer PC
-    │
-    ├── Dashboard
-    ├── Node.js Server
-    ├── Python Detection
-    └── PostgreSQL
-```
-
-After testing, the application can be transferred and configured for Raspberry Pi deployment.
-
----
-
-## Database
-
-Project DELTA uses PostgreSQL for persistent application data.
-
-The database may contain information such as:
-
-* Enrolled users
-* Student information
-* Face embeddings
-* Detection-related metadata
-* System records
-
-Sensitive biometric information should be protected through appropriate access controls and should not be unnecessarily exposed through public API responses.
-
----
-
-## API
-
-The Node.js server provides backend functionality for communication between the dashboard, detection services, and database.
-
-Example API functionality may include:
-
-```text
-GET    /api/students
-POST   /api/students
-GET    /api/students/:id
-POST   /api/recognition
-GET    /api/detections
-```
-
-> API routes may change as development continues. Refer to the `server/` and `api/` directories for the current implementation.
-
----
-
-## Raspberry Pi Setup
-
-### 1. Install Raspberry Pi OS
-
-Install Raspberry Pi OS on the Raspberry Pi and connect:
-
-* Camera
-* 7-inch touchscreen
-* Network
-* Power supply
-
-### 2. Install Required Software
-
-Install the required runtime environments and dependencies:
+Update the operating system:
 
 ```bash
 sudo apt update
-sudo apt upgrade
+sudo apt upgrade -y
 ```
 
-Install Node.js, Python, Git, and other project dependencies required by the current implementation.
-
-### 3. Clone the Repository
+Check Python:
 
 ```bash
-git clone <repository-url>
-cd Project-DELTA
+python3 --version
 ```
 
-### 4. Install Dependencies
+Check pip:
 
-Install the Node.js and Python dependencies required by the project.
-
-### 5. Configure Environment Variables
-
-Create the required environment configuration for:
-
-* PostgreSQL connection
-* API configuration
-* Application settings
-* Other required credentials
-
-Never commit secrets, passwords, database credentials, or private API keys to the repository.
-
-### 6. Start the Services
-
-Start the Node.js backend and Python computer vision service according to the project's current configuration.
-
-### 7. Launch the Dashboard
-
-The dashboard can then be displayed through the Raspberry Pi's touchscreen interface.
+```bash
+pip3 --version
+```
 
 ---
 
-## Deployment Model
+# Step 2 — Test the Camera
 
-The primary deployment target is the Raspberry Pi.
+For a Raspberry Pi camera, test the camera using the appropriate Raspberry Pi camera utility.
+
+For example:
+
+```bash
+libcamera-hello
+```
+
+If you are using a USB webcam, check connected devices:
+
+```bash
+ls /dev/video*
+```
+
+You should see something similar to:
 
 ```text
-                    PROJECT DELTA
-                         │
-                         ▼
-                 Raspberry Pi 4/5
-                         │
-          ┌──────────────┼──────────────┐
-          ▼              ▼              ▼
-       Camera        Node.js         Dashboard
-          │           Server              │
-          ▼              │                ▼
-     Python/OpenCV       │          7" Touchscreen
-          │              │
-          └───────┬──────┘
-                  ▼
-             PostgreSQL
+/dev/video0
 ```
 
-For development, the dashboard and services may also be run on a laptop or desktop computer.
-
-Cloud hosting platforms such as Vercel may be used for development, demonstrations, or optional web deployment, but they are not required for the core Raspberry Pi deployment.
+If the camera is not detected, verify the camera connection before continuing.
 
 ---
 
-## Security & Privacy
+# Step 3 — Find the Raspberry Pi IP Address
 
-Project DELTA may process sensitive information, including facial data.
+On the Raspberry Pi:
 
-The following practices should be followed:
+```bash
+hostname -I
+```
 
-* Protect database credentials
-* Do not commit `.env` files
-* Do not expose database credentials in frontend code
-* Restrict access to biometric data
-* Avoid returning unnecessary face embeddings through APIs
-* Use authentication and authorization for protected endpoints
-* Store only the information required by the application
-* Secure communication between system components when deployed over a network
+Example:
 
----
+```text
+192.168.1.105
+```
 
-## Development Status
+This IP address will be used by the dashboard to communicate with the Raspberry Pi.
 
-Project DELTA is currently under active development.
-
-Current development areas include:
-
-* [x] Human detection
-* [x] Face recognition
-* [x] PostgreSQL integration
-* [x] Web dashboard
-* [x] Node.js backend
-* [ ] Raspberry Pi deployment
-* [ ] Touchscreen optimization
-* [ ] Automatic service startup
-* [ ] Production security hardening
-* [ ] Full hardware integration
+Save this IP address.
 
 ---
 
-## Future Improvements
+# Step 4 — Copy the Human Detection Folder to the Raspberry Pi
 
-Planned improvements may include:
+From your development computer:
 
-* Improved detection accuracy
-* Better face recognition performance
-* Optimized Raspberry Pi inference
-* Offline-first operation
-* Automatic application startup
-* System health monitoring
-* Detection history
-* Improved touchscreen UX
-* User management
-* Advanced health monitoring features
-* Hardware sensor integration
+```bash
+scp -r human-detection pi@<PI_IP>:~/
+```
+
+Example:
+
+```bash
+scp -r human-detection pi@192.168.1.105:~/
+```
+
+Enter the Raspberry Pi password when requested.
+
+After copying, the Raspberry Pi should contain:
+
+```text
+/home/pi/human-detection/
+```
 
 ---
 
-## License
+# Step 5 — Open the Human Detection Folder
 
-This project is currently intended for educational and development purposes.
+On the Raspberry Pi:
 
-Add the appropriate license here if the project is later released as open source.
+```bash
+cd ~/human-detection
+```
+
+Check the files:
+
+```bash
+ls
+```
+
+You should see files such as:
+
+```text
+detector.py
+requirements.txt
+start.bat
+```
+
+---
+
+# Step 6 — Create a Python Virtual Environment
+
+Run:
+
+```bash
+python3 -m venv venv
+```
+
+Activate it:
+
+```bash
+source venv/bin/activate
+```
+
+Your terminal should now indicate that the virtual environment is active.
+
+---
+
+# Step 7 — Upgrade pip
+
+```bash
+pip install --upgrade pip
+```
+
+---
+
+# Step 8 — Install Python Dependencies
+
+Run:
+
+```bash
+pip install -r requirements.txt
+```
+
+This installs the dependencies required by the human detection service.
+
+Depending on the Raspberry Pi model and operating system, installing computer-vision dependencies may take some time.
+
+---
+
+# Step 9 — Configure the Camera
+
+Open the detector:
+
+```bash
+nano detector.py
+```
+
+Check the camera configuration.
+
+If the application uses a camera index, you may see something similar to:
+
+```python
+cv2.VideoCapture(0)
+```
+
+For another camera device, this may need to be changed:
+
+```python
+cv2.VideoCapture(1)
+```
+
+Use the camera device that is actually available on your Raspberry Pi.
+
+Save the file after making changes.
+
+---
+
+# Step 10 — Start the Detection Service
+
+Run:
+
+```bash
+source ~/human-detection/venv/bin/activate
+python detector.py
+```
+
+The service should start on:
+
+```text
+http://0.0.0.0:8001
+```
+
+This means the service can be accessed through the Raspberry Pi's network address.
+
+---
+
+# Step 11 — Test the Raspberry Pi API
+
+On the Raspberry Pi:
+
+```bash
+curl http://localhost:8001/health
+```
+
+Expected:
+
+```json
+{
+  "status": "ok",
+  "service": "human-detection"
+}
+```
+
+Now test from your laptop.
+
+If the Pi IP is:
+
+```text
+192.168.1.105
+```
+
+run:
+
+```bash
+curl http://192.168.1.105:8001/health
+```
+
+If this works, your laptop can communicate with the Raspberry Pi.
+
+---
+
+# Step 12 — Test Human Detection
+
+Open:
+
+```text
+http://192.168.1.105:8001/api/human/present
+```
+
+Expected response:
+
+```json
+{
+  "present": true
+}
+```
+
+when a person is detected.
+
+Without a person:
+
+```json
+{
+  "present": false
+}
+```
+
+---
+
+# Connecting Raspberry Pi to the Dashboard
+
+Once the Raspberry Pi detection service works, connect it to the dashboard.
+
+---
+
+# Step 1 — Find the Current Detection URL
+
+The dashboard uses the Python detection service through a data source.
+
+You may have code similar to:
+
+```javascript
+window.DashboardData.createPythonDetectionDataSource(
+  "http://localhost:8001"
+);
+```
+
+`localhost` means the same machine running the browser/server.
+
+When the detector moves to the Raspberry Pi, this must point to the Raspberry Pi.
+
+---
+
+# Step 2 — Change the Detection Server Address
+
+Example:
+
+```javascript
+window.DashboardData.createPythonDetectionDataSource(
+  "http://192.168.1.105:8001"
+);
+```
+
+Replace:
+
+```text
+192.168.1.105
+```
+
+with your Raspberry Pi's actual IP address.
+
+---
+
+# Step 3 — Start the Dashboard
+
+On the laptop/server:
+
+```bash
+cd server
+npm start
+```
+
+Open:
+
+```text
+http://localhost:8000
+```
+
+---
+
+# Step 4 — Verify the Connection
+
+The browser should communicate with:
+
+```text
+Laptop
+   ↓
+Dashboard
+   ↓
+http://192.168.1.105:8001
+   ↓
+Raspberry Pi
+   ↓
+YOLOv8
+   ↓
+Camera
+```
+
+The dashboard should change from:
+
+```text
+NO SIGNAL
+```
+
+to the appropriate detection state when a human is detected.
+
+---
+
+# Database Setup
+
+Project DELTA uses Neon PostgreSQL.
+
+The database stores student profiles, face embeddings, sessions, and measurements.
+
+---
+
+# Database Tables
+
+The current schema includes:
+
+### students
+
+Stores student profile information.
+
+```text
+id
+name
+age
+weight_kg
+created_at
+```
+
+### face_embeddings
+
+Stores the student's face embedding.
+
+```text
+id
+student_id
+embedding
+created_at
+```
+
+### detection_sessions
+
+Stores detection sessions.
+
+```text
+id
+client_key
+student_id
+student_name
+started_at
+ended_at
+```
+
+### measurements
+
+Stores recorded measurements.
+
+```text
+id
+session_client_key
+student_id
+electrolytes_pct
+hydration_pct
+stress_pct
+sodium_meq_l
+lactate_mmol_l
+temperature_c
+recorded_at
+```
+
+---
+
+# Configure the Database
+
+Inside:
+
+```text
+server/.env
+```
+
+add:
+
+```env
+DATABASE_URL=postgresql://user:password@host/database?sslmode=require
+```
+
+Do not commit the real database connection string to GitHub.
+
+Make sure `.env` is included in `.gitignore`.
+
+---
+
+# Face Recognition Setup
+
+Project DELTA uses `face-api.js` for browser-based face recognition.
+
+The browser loads the required models from the local model directory.
+
+The model files must be accessible to the dashboard.
+
+Expected model location:
+
+```text
+models/
+```
+
+If face recognition does not work, check the browser developer console for model-loading errors.
+
+---
+
+# Student Enrollment
+
+When an unknown face is detected, the dashboard can display the enrollment interface.
+
+The enrollment information includes:
+
+```text
+Name
+Age
+Weight
+Face embedding
+```
+
+The face embedding is generated by face-api.js.
+
+The dashboard sends the enrollment information to:
+
+```text
+POST /api/students/enroll
+```
+
+---
+
+# Student Recognition
+
+For a known student:
+
+```text
+Camera
+   ↓
+Human detected
+   ↓
+Face detected
+   ↓
+Face embedding generated
+   ↓
+Embedding compared with enrolled students
+   ↓
+Student matched
+   ↓
+Student profile loaded
+```
+
+The student's profile can then be used by the dashboard for personalized information.
+
+---
+
+# Running the Complete System
+
+Once everything is configured, the recommended startup order is:
+
+## 1. Start Raspberry Pi
+
+Power on the Raspberry Pi.
+
+Start the detection service:
+
+```bash
+cd ~/human-detection
+source venv/bin/activate
+python detector.py
+```
+
+---
+
+## 2. Verify Raspberry Pi
+
+From the laptop:
+
+```bash
+curl http://<PI_IP>:8001/health
+```
+
+Example:
+
+```bash
+curl http://192.168.1.105:8001/health
+```
+
+---
+
+## 3. Start Node.js Dashboard
+
+On the laptop/server:
+
+```bash
+cd server
+npm start
+```
+
+---
+
+## 4. Open Dashboard
+
+Open:
+
+```text
+http://localhost:8000
+```
+
+---
+
+## 5. Allow Camera Permission
+
+Allow camera permission if requested by the browser.
+
+The camera used for YOLO human detection should be connected to the Raspberry Pi.
+
+The browser camera is used by face-api.js for face recognition/enrollment when applicable.
+
+---
+
+# Complete Production Flow
+
+```text
+                    POWER ON
+                       │
+                       ▼
+               Raspberry Pi boots
+                       │
+                       ▼
+             Python service starts
+                       │
+                       ▼
+                Camera initializes
+                       │
+                       ▼
+                 YOLOv8 starts
+                       │
+                       ▼
+                  Port :8001
+                       │
+                       │
+                       │ LAN
+                       ▼
+             Node.js Dashboard :8000
+                       │
+                       ▼
+                 Web Browser
+                       │
+                       ▼
+              Human detected?
+                  /        \
+                NO          YES
+                │             │
+                ▼             ▼
+             NO SIGNAL    Face Recognition
+                              │
+                         ┌────┴────┐
+                         │         │
+                       Known     Unknown
+                         │         │
+                         ▼         ▼
+                      Profile   Enrollment
+                         │         │
+                         └────┬────┘
+                              ▼
+                     Personalized Data
+                              │
+                              ▼
+                       Neon PostgreSQL
+```
+
+---
+
+# Auto-Start on Raspberry Pi Boot
+
+For deployment, you should configure the detection service to automatically start whenever the Raspberry Pi boots.
+
+This prevents you from manually running:
+
+```bash
+python detector.py
+```
+
+every time.
+
+---
+
+# Step 1 — Create a systemd Service
+
+On the Raspberry Pi:
+
+```bash
+sudo nano /etc/systemd/system/delta-detector.service
+```
+
+Add:
+
+```ini
+[Unit]
+Description=Project DELTA Human Detection Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/human-detection
+ExecStart=/home/pi/human-detection/venv/bin/python detector.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+> If your Raspberry Pi username is not `pi`, replace `User=pi` and `/home/pi/` with the correct username and home directory.
+
+---
+
+# Step 2 — Reload systemd
+
+```bash
+sudo systemctl daemon-reload
+```
+
+---
+
+# Step 3 — Enable the Service
+
+```bash
+sudo systemctl enable delta-detector
+```
+
+---
+
+# Step 4 — Start the Service
+
+```bash
+sudo systemctl start delta-detector
+```
+
+---
+
+# Step 5 — Check the Service
+
+```bash
+sudo systemctl status delta-detector
+```
+
+You should see:
+
+```text
+Active: active (running)
+```
+
+---
+
+# Step 6 — View Logs
+
+To monitor the service:
+
+```bash
+journalctl -u delta-detector -f
+```
+
+Press:
+
+```text
+CTRL + C
+```
+
+to exit the log viewer.
+
+---
+
+# Step 7 — Test Automatic Startup
+
+Reboot the Raspberry Pi:
+
+```bash
+sudo reboot
+```
+
+Wait for it to boot.
+
+Then from another computer:
+
+```bash
+curl http://<PI_IP>:8001/health
+```
+
+If the API responds successfully without manually starting Python, automatic startup is working.
+
+---
+
+# Network Configuration
+
+The Raspberry Pi and dashboard server must be able to communicate over the network.
+
+Recommended setup:
+
+```text
+                    Router
+                  /       \
+                 /         \
+                ▼           ▼
+        Raspberry Pi      Laptop
+        192.168.1.105     192.168.1.100
+             │                 │
+             │                 │
+             └────── LAN ──────┘
+```
+
+The dashboard uses:
+
+```text
+http://192.168.1.105:8001
+```
+
+to communicate with the Raspberry Pi.
+
+---
+
+# Finding the Laptop IP
+
+On Windows:
+
+```cmd
+ipconfig
+```
+
+Look for:
+
+```text
+IPv4 Address
+```
+
+On Linux:
+
+```bash
+hostname -I
+```
+
+---
+
+# Finding the Raspberry Pi IP
+
+On Raspberry Pi:
+
+```bash
+hostname -I
+```
+
+Example:
+
+```text
+192.168.1.105
+```
+
+---
+
+# Important Network Requirement
+
+The Raspberry Pi and the dashboard server should normally be connected to the same local network.
+
+For example:
+
+```text
+Raspberry Pi
+192.168.1.105
+
+Laptop
+192.168.1.100
+```
+
+Both belong to:
+
+```text
+192.168.1.x
+```
+
+---
+
+# API Endpoints
+
+## Python Human Detection Service
+
+Runs on:
+
+```text
+Port 8001
+```
+
+### Health
+
+```http
+GET /health
+```
+
+Response:
+
+```json
+{
+  "status": "ok",
+  "service": "human-detection"
+}
+```
+
+### Human Presence
+
+```http
+GET /api/human/present
+```
+
+Response:
+
+```json
+{
+  "present": true
+}
+```
+
+### Human Status
+
+```http
+GET /api/human/status
+```
+
+Example:
+
+```json
+{
+  "human_present": true,
+  "last_detection": "timestamp",
+  "camera_active": true
+}
+```
+
+---
+
+# Node.js Dashboard API
+
+Runs on:
+
+```text
+Port 8000
+```
+
+### Dashboard
+
+```http
+GET /
+```
+
+### Server Health
+
+```http
+GET /api/health
+```
+
+### Get Students
+
+```http
+GET /api/students
+```
+
+### Enroll Student
+
+```http
+POST /api/students/enroll
+```
+
+Example request:
+
+```json
+{
+  "name": "Student Name",
+  "embedding": [128],
+  "age": 18,
+  "weightKg": 55
+}
+```
+
+### Start Session
+
+```http
+POST /api/sessions
+```
+
+Example:
+
+```json
+{
+  "clientKey": "client-001",
+  "studentName": "Student Name"
+}
+```
+
+### Save Measurement
+
+```http
+POST /api/measurements
+```
+
+Stores health measurements associated with the active session and student.
+
+---
+
+# Troubleshooting
+
+## Raspberry Pi API is not accessible
+
+Check whether the service is running:
+
+```bash
+sudo systemctl status delta-detector
+```
+
+Or manually:
+
+```bash
+cd ~/human-detection
+source venv/bin/activate
+python detector.py
+```
+
+Test locally:
+
+```bash
+curl http://localhost:8001/health
+```
+
+Then test through the Pi IP:
+
+```bash
+curl http://<PI_IP>:8001/health
+```
+
+---
+
+# Camera Not Detected
+
+Check:
+
+```bash
+ls /dev/video*
+```
+
+For Raspberry Pi camera hardware, verify the camera using the appropriate camera utility.
+
+Also check:
+
+* Camera cable
+* USB connection
+* Camera permissions
+* Camera index in `detector.py`
+* Whether another application is using the camera
+
+---
+
+# YOLOv8 Is Not Starting
+
+Check Python:
+
+```bash
+python3 --version
+```
+
+Activate the virtual environment:
+
+```bash
+source ~/human-detection/venv/bin/activate
+```
+
+Check installed packages:
+
+```bash
+pip list
+```
+
+Reinstall dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+# Dashboard Cannot Connect to Raspberry Pi
+
+First test:
+
+```bash
+curl http://<PI_IP>:8001/health
+```
+
+If this fails:
+
+1. Check the Pi IP address.
+2. Check that the Pi is online.
+3. Check that the Python service is running.
+4. Check that both devices are on the same network.
+5. Check firewall/network restrictions.
+6. Check that the Python server is listening on the correct interface.
+
+The Python service should be accessible beyond:
+
+```text
+localhost
+```
+
+when remote devices need to connect.
+
+---
+
+# Dashboard Shows "NO SIGNAL"
+
+Check the following:
+
+```text
+Dashboard
+    ↓
+Python API URL
+    ↓
+Raspberry Pi IP
+    ↓
+Port 8001
+    ↓
+Human detection service
+    ↓
+Camera
+```
+
+Test manually:
+
+```bash
+curl http://<PI_IP>:8001/api/human/present
+```
+
+If the endpoint returns:
+
+```json
+{
+  "present": true
+}
+```
+
+but the dashboard still shows `NO SIGNAL`, check the browser console and dashboard data-source configuration.
+
+---
+
+# Face Recognition Not Loading
+
+Check that the face-api.js models exist in the expected directory:
+
+```text
+models/
+```
+
+Open the browser developer console and look for model-loading errors.
+
+Make sure the model paths used by the application match the actual location of the model files.
+
+---
+
+# Database Connection Problems
+
+Check:
+
+```text
+server/.env
+```
+
+Make sure:
+
+```env
+DATABASE_URL=...
+```
+
+is configured correctly.
+
+Do not commit `.env` to GitHub.
+
+Test the server:
+
+```text
+GET /api/health
+```
+
+The response should indicate whether the server and database are available.
+
+---
+
+# Raspberry Pi Service Keeps Restarting
+
+View logs:
+
+```bash
+journalctl -u delta-detector -n 100
+```
+
+Follow live logs:
+
+```bash
+journalctl -u delta-detector -f
+```
+
+Common causes:
+
+* Camera unavailable
+* Missing Python dependency
+* Incorrect camera index
+* Incorrect working directory
+* Incorrect virtual-environment path
+* Permission problem
+* YOLO model loading error
+* Insufficient Raspberry Pi resources
+
+---
+
+# Security Notes
+
+This project is currently an internal prototype.
+
+Before production deployment:
+
+* Do not expose port `8001` directly to the public internet.
+* Do not commit database credentials.
+* Use environment variables for secrets.
+* Restrict database access.
+* Use HTTPS for production traffic.
+* Add authentication/authorization to sensitive API endpoints.
+* Restrict CORS origins instead of allowing all origins.
+* Protect student biometric data.
+* Review data retention requirements.
+* Avoid exposing face embeddings through public endpoints.
+* Secure the Raspberry Pi with a strong password.
+* Keep Raspberry Pi OS and dependencies updated.
+
+---
+
+# Deployment Checklist
+
+Use this checklist when deploying Project DELTA to a new Raspberry Pi.
+
+* [ ] Raspberry Pi OS installed
+* [ ] Raspberry Pi connected to network
+* [ ] Camera connected
+* [ ] Camera tested
+* [ ] Python 3 installed
+* [ ] `human-detection/` copied to Raspberry Pi
+* [ ] Python virtual environment created
+* [ ] Python dependencies installed
+* [ ] Camera index configured
+* [ ] YOLOv8 detection tested
+* [ ] Port `8001` accessible
+* [ ] Raspberry Pi IP recorded
+* [ ] Dashboard detection URL updated
+* [ ] Node.js server configured
+* [ ] Neon `DATABASE_URL` configured
+* [ ] Face-api.js models available
+* [ ] Dashboard tested
+* [ ] Human detection tested
+* [ ] Face enrollment tested
+* [ ] Student recognition tested
+* [ ] Measurements tested
+* [ ] `systemd` service created
+* [ ] `systemd` service enabled
+* [ ] Raspberry Pi reboot tested
+* [ ] Complete system tested
+
+---
+
+# Quick Deployment Summary
+
+For future deployments, the shortest version is:
+
+```bash
+# Raspberry Pi
+
+sudo apt update
+sudo apt upgrade -y
+
+git clone https://github.com/amblessly/delta-dashboard.git
+cd delta-dashboard/human-detection
+
+python3 -m venv venv
+source venv/bin/activate
+
+pip install --upgrade pip
+pip install -r requirements.txt
+
+python detector.py
+```
+
+Find the Pi IP:
+
+```bash
+hostname -I
+```
+
+Test:
+
+```bash
+curl http://<PI_IP>:8001/health
+```
+
+Then configure the dashboard to use:
+
+```text
+http://<PI_IP>:8001
+```
+
+Start the dashboard server:
+
+```bash
+cd server
+npm install
+npm start
+```
+
+Open:
+
+```text
+http://localhost:8000
+```
+
+For permanent deployment, configure the Raspberry Pi detection service with `systemd` so it automatically starts after reboot.
+
+---
+
+# Final Architecture
+
+The final recommended deployment is:
+
+```text
+┌─────────────────────────────────────────────────────────┐
+│                     PROJECT DELTA                       │
+└─────────────────────────────────────────────────────────┘
+
+                         INTERNET
+                            │
+                            ▼
+                    ┌───────────────┐
+                    │   Neon DB     │
+                    │  PostgreSQL   │
+                    └───────▲───────┘
+                            │
+                            │
+                    ┌───────┴───────┐
+                    │ Node.js Server │
+                    │    :8000       │
+                    └───────▲───────┘
+                            │
+                            ▼
+                    ┌───────────────┐
+                    │   Dashboard   │
+                    │   Browser UI  │
+                    └───────▲───────┘
+                            │
+                       HTTP / LAN
+                            │
+                            ▼
+              ┌─────────────────────────┐
+              │      Raspberry Pi       │
+              │                         │
+              │  Python + FastAPI       │
+              │  YOLOv8                 │
+              │  :8001                  │
+              │                         │
+              │       Camera            │
+              └─────────────────────────┘
+```
+
+---
+
+# License
+
+Internal prototype — Project DELTA.
+
+This project is intended for educational, research, and prototype development purposes.
