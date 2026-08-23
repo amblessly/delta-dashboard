@@ -147,6 +147,7 @@ window.FaceMonitor = (function () {
       if (!modelsReady) { setState({ state: "ERROR", error: status.error }); return false; }
 
       setState({ state: "RUNNING", error: null });
+      console.log("[FaceMonitor] Camera started, models ready, beginning analysis loop");
       timer = setInterval(analyzeFrame, ANALYZE_INTERVAL);
       return true;
     }
@@ -178,6 +179,7 @@ window.FaceMonitor = (function () {
         lastDescriptor = desc;
 
         const match = matchDescriptor(desc);
+        console.log("[FaceMonitor] face detected, match:", match.matched ? "yes (dist=" + match.dist + ")" : "no (best=" + match.dist + ")");
         if (match.matched) handleIdentified(match);
         else handleUnknown();
       } catch (e) {
@@ -211,9 +213,11 @@ window.FaceMonitor = (function () {
       const sameStudent = currentStudent && currentStudent.id === match.studentId;
       if (sameStudent) return;
 
+      console.log("[FaceMonitor] identified streak:", identifiedStreak, "/", HITS_TO_IDENTIFY, "student:", match.name);
       if (identifiedStreak >= HITS_TO_IDENTIFY) {
         currentStudent = { id: match.studentId, name: match.name };
         identifiedStreak = 0;
+        console.log("[FaceMonitor] EMIT IDENTIFIED:", currentStudent);
         emitState();
       }
     }
@@ -224,16 +228,20 @@ window.FaceMonitor = (function () {
         /* A face is present but does not match the current student -
            count misses until we drop them (person changed). */
         missCount++;
+        console.log("[FaceMonitor] unknown face but have currentStudent, miss:", missCount);
         if (missCount >= MISSES_TO_EXIT) {
           currentStudent = null;
+          console.log("[FaceMonitor] EMIT NO FACE (dropped current)");
           emitState();
         }
         return;
       }
       missCount = 0;
       unknownStreak++;
+      console.log("[FaceMonitor] unknown streak:", unknownStreak, "/", HITS_TO_IDENTIFY);
       if (unknownStreak >= HITS_TO_IDENTIFY) {
         unknownStreak = 0;
+        console.log("[FaceMonitor] EMIT UNKNOWN");
         if (onUnknown) {
           enrollLock = true;   /* wait for main.js enrollment decision */
           onUnknown(lastDescriptor ? Array.from(lastDescriptor) : null);

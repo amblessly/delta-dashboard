@@ -425,10 +425,12 @@ function setAvatarUI({ live, scanning, detected, matched }) {
 
 async function bootstrapFaceMonitor() {
   const students = await window.DeltaDB.fetchStudents();
+  console.log("[Main] bootstrapFaceMonitor: fetched students:", students);
   if (students && students.length) {
     faceMonitor.setKnownFaces(students);
   }
   /* Start camera + recognition loop. */
+  console.log("[Main] Starting faceMonitor...");
   faceMonitor.start();
 }
 
