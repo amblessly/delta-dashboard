@@ -1,7 +1,3 @@
-/* --------------------
-   main.js - UI binding for the Project DELTA health dashboard.
-   -------------------- */
-
 "use strict";
 
 const ICONS = {
@@ -11,55 +7,28 @@ const ICONS = {
   check:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg>',
 };
 
-const REC_ICONS = {
-  hydration: "droplet",
-  stress: "lungs",
-  lactate: "flask",
-  electrolytes: "check",
-};
+const REC_ICONS = { hydration: "droplet", stress: "lungs", lactate: "flask", electrolytes: "check" };
 
-/* - Boot sequence -------------------- */
-
-const bootMessages = [
-  "ACQUIRING SENSOR SIGNAL\u2026",
-  "CALIBRATING BIOMETRIC CHANNELS\u2026",
-  "SYNCING PATIENT RECORD\u2026",
-  "LINK ESTABLISHED",
-];
-
+/* ── Boot sequence ── */
+const bootMessages = ["ACQUIRING SENSOR SIGNAL\u2026", "CALIBRATING BIOMETRIC CHANNELS\u2026", "SYNCING PATIENT RECORD\u2026", "LINK ESTABLISHED"];
 function runBootSequence(done) {
   const overlay = document.getElementById("bootOverlay");
   const status = document.getElementById("bootStatus");
   const bar = document.getElementById("bootBar");
   if (!overlay) { if (done) done(); return; }
-
   let i = 0;
   const step = () => {
     if (status && bootMessages[i]) status.textContent = bootMessages[i];
     if (bar) bar.style.width = `${Math.round(((i + 1) / bootMessages.length) * 100)}%`;
     i += 1;
-    if (i < bootMessages.length) {
-      setTimeout(step, 250);
-    } else {
-      setTimeout(() => {
-        overlay.classList.add("hide");
-        setTimeout(() => { overlay.style.display = "none"; }, 400);
-        if (done) done();
-      }, 300);
-    }
+    if (i < bootMessages.length) setTimeout(step, 250);
+    else setTimeout(() => { overlay.classList.add("hide"); setTimeout(() => { overlay.style.display = "none"; }, 400); if (done) done(); }, 300);
   };
   step();
-  setTimeout(() => {
-    if (overlay && overlay.style.display !== "none") {
-      overlay.classList.add("hide");
-      overlay.style.display = "none";
-      if (done) done();
-    }
-  }, 2500);
+  setTimeout(() => { if (overlay && overlay.style.display !== "none") { overlay.classList.add("hide"); overlay.style.display = "none"; if (done) done(); } }, 2500);
 }
 
-/* - Rendering -------------------- */
-
+/* ── Rendering ── */
 function renderPatient(student) {
   const nameEl = document.querySelector("[data-role=patient-name]");
   const ageEl = document.querySelector("[data-role=patient-age]");
@@ -84,16 +53,6 @@ const ASSESS_ICONS = {
   critical: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 2h8.2L22 7.9v8.2L16.1 22H7.9L2 16.1V7.9L7.9 2Z"/><path d="M12 8v4"/><path d="M12 16.2v.1"/></svg>',
 };
 
-function renderAssessment(assessment) {
-  const root = document.getElementById("assessNote");
-  if (!root || !assessment) return;
-  root.dataset.key = assessment.key;
-  const icEl = root.querySelector("[data-role=assess-ic]");
-  icEl.innerHTML = ASSESS_ICONS[assessment.key] || ASSESS_ICONS.ok;
-  root.querySelector("[data-role=assess-title]").textContent = assessment.title;
-  root.querySelector("[data-role=assess-text]").textContent = assessment.text;
-}
-
 const METRIC_CARDS = [
   { key: "electrolytes", sel: "#card-electrolytes", decimals: 0 },
   { key: "hydration",    sel: "#card-hydration",    decimals: 0 },
@@ -102,7 +61,6 @@ const METRIC_CARDS = [
   { key: "lactate",      sel: "#card-lactate",      decimals: 1 },
   { key: "temperature",  sel: "#card-temp",         decimals: 1 },
 ];
-
 const STRESS2_SEL = "#card-stress2";
 
 function renderMetrics(snapshot) {
@@ -110,18 +68,15 @@ function renderMetrics(snapshot) {
     const m = snapshot.metrics[def.key];
     const root = document.querySelector(def.sel);
     if (!root) continue;
-    const valEl = root.querySelector("[data-role=value]");
-    const stEl = root.querySelector("[data-role=status]");
+    root.querySelector("[data-role=value]").textContent = Number(m.value).toFixed(def.decimals);
+    renderStatus(root.querySelector("[data-role=status]"), m.status);
     const barEl = root.querySelector("[data-role=bar]");
-    const text = Number(m.value).toFixed(def.decimals);
-    valEl.textContent = text;
-    renderStatus(stEl, m.status);
     barEl.style.width = `${barPercent(def.key, m.value)}%`;
     barEl.className = `bar-fill ${barClassFor(def.key, m.status.key)}`;
     if (def.key === "stress") {
       const root2 = document.querySelector(STRESS2_SEL);
       if (root2) {
-        root2.querySelector("[data-role=value]").textContent = text;
+        root2.querySelector("[data-role=value]").textContent = Number(m.value).toFixed(def.decimals);
         renderStatus(root2.querySelector("[data-role=status]"), m.status);
         const bar2 = root2.querySelector("[data-role=bar]");
         bar2.style.width = `${barPercent("stress", m.value)}%`;
@@ -146,17 +101,11 @@ function renderHeatStress(snapshot) {
   root.querySelector("[data-role=hs-breakdown]").textContent = `T ${hs.inputs.T} \u00B7 ELEC ${hs.inputs.E} \u00B7 LAC ${hs.inputs.L}`;
 }
 
-const PH_COLORS = {
-  blue: "#60a5fa",
-  greenzone: "#34d399",
-  yellowgreen: "#a3e635",
-  brightyellow: "#fbbf24",
-};
-
 function renderPhStrip(snapshot) {
   const root = document.getElementById("card-phstrip");
   if (!root || !snapshot.ph) return;
   const { value, zone } = snapshot.ph;
+  const PH_COLORS = { blue: "#60a5fa", greenzone: "#34d399", yellowgreen: "#a3e635", brightyellow: "#fbbf24" };
   const color = PH_COLORS[zone.id];
   root.querySelector("[data-role=ph-val]").textContent = value.toFixed(1);
   const namePill = root.querySelector("[data-role=ph-name]");
@@ -217,8 +166,7 @@ function barPercent(key, value) {
 
 function clampPercent(p) { return Math.max(2, Math.min(100, p)); }
 
-/* - Recommendations -------------------- */
-
+/* ── Recommendations ── */
 const recList = document.getElementById("recList");
 const acknowledged = new Set();
 
@@ -236,9 +184,7 @@ function renderRecommendations(recs) {
   if (visible.length === 0) { acknowledged.clear(); visible = recs; }
   const emptyMsg = recList.querySelector(".rec-empty");
   if (emptyMsg) emptyMsg.remove();
-  [...recList.children].forEach(node => {
-    if (!visible.some(r => r.id === node.dataset.id)) node.remove();
-  });
+  [...recList.children].forEach(node => { if (!visible.some(r => r.id === node.dataset.id)) node.remove(); });
   visible.forEach((rec, idx) => {
     let node = recList.querySelector(`[data-id="${rec.id}"]`);
     if (!node) {
@@ -246,7 +192,7 @@ function renderRecommendations(recs) {
       node.className = `rec-item theme-${rec.theme || "green"} enter`;
       node.dataset.id = rec.id;
       node.innerHTML = `<div class="rec-icon ${rec.icon}">${ICONS[REC_ICONS[rec.id]] || ICONS.check}</div><div class="rec-body"><div class="rec-title"></div><div class="rec-desc"></div></div>`;
-      node.addEventListener("click", () => { acknowledged.add(rec.id); applyRecAction(rec.id); renderRecommendations(lastSnapshot.recommendations); });
+      node.addEventListener("click", () => { acknowledged.add(rec.id); renderRecommendations(lastSnapshot.recommendations); });
       requestAnimationFrame(() => requestAnimationFrame(() => node.classList.remove("enter")));
       recList.appendChild(node);
     }
@@ -257,12 +203,7 @@ function renderRecommendations(recs) {
   });
 }
 
-function applyRecAction(id) {
-  if (id === "hydration" || id === "electrolytes") source.sendCommand({ type: "hydrate" });
-  if (id === "stress") source.sendCommand({ type: "breathe" });
-}
-
-/* - Clock -------------------- */
+/* ── Clock ── */
 function tickClock() {
   const now = new Date();
   const pad = n => String(n).padStart(2, "0");
@@ -270,25 +211,51 @@ function tickClock() {
 }
 setInterval(tickClock, 1000);
 
-/* - Touch feedback -------------------- */
+/* ── Debug status bar ── */
+const debugDot = document.getElementById("debugDot");
+const debugText = document.getElementById("debugText");
+function setDebug(msg, color) {
+  if (debugText) debugText.textContent = msg;
+  if (debugDot) { debugDot.className = "debug-dot"; if (color) debugDot.classList.add(color); }
+}
+
+/* ── Touch feedback ── */
 document.body.style.touchAction = "manipulation";
 document.querySelectorAll(".tap").forEach(card => {
   card.addEventListener("pointerdown", () => card.classList.add("pressed"));
   ["pointerup", "pointerleave", "pointercancel"].forEach(ev => card.addEventListener(ev, () => card.classList.remove("pressed")));
 });
 
-/* - Wiring -------------------- */
+/* ════════════════════════════════════════════════════════════════
+   WIRED DATA + SCANNING
+   ════════════════════════════════════════════════════════════════ */
 
 const source = window.DashboardData.createSimulatedDataSource();
 let lastSnapshot = null;
 let currentStudent = null;
+let scanState = "idle"; /* idle | scanning | processing | result */
+let lastScanResult = null;
 
 source.start(snapshot => {
   lastSnapshot = snapshot;
   renderPatient(snapshot.student);
   renderMetrics(snapshot);
+  renderHeatStress(snapshot);
+  renderPhStrip(snapshot);
   renderRecommendations(snapshot.recommendations);
+  if (snapshot.presence) setDebug("ACTIVE: " + (snapshot.student?.name || "unknown"), "green");
 });
+
+/* ── Avatar ── */
+const avatarBox = document.getElementById("avatarBox");
+const camFeed = document.getElementById("camFeed");
+function setAvatarUI({ live, scanning, detected, matched }) {
+  if (!avatarBox) return;
+  avatarBox.classList.toggle("live", !!live);
+  avatarBox.classList.toggle("scanning", !!scanning);
+  avatarBox.classList.toggle("detected", !!detected);
+  avatarBox.classList.toggle("matched", !!matched);
+}
 
 /* ── Enrollment modal ── */
 const enrollModal = document.getElementById("enrollModal");
@@ -300,34 +267,12 @@ const enrollConfirm = document.getElementById("enrollConfirm");
 const enrollCancel = document.getElementById("enrollCancel");
 let pendingEnrollment = null;
 
-/* ── Guidance toast ── */
-const guidanceToast = document.getElementById("guidanceToast");
-const guidanceText = document.getElementById("guidanceText");
-let guidanceTimer = null;
-
-function showGuidance(msg, persistent) {
-  if (!guidanceToast || (enrollModal && enrollModal.style.display !== "none")) return;
-  if (guidanceText) guidanceText.textContent = msg || "Please face the camera directly";
-  guidanceToast.style.display = "flex";
-  clearTimeout(guidanceTimer);
-  if (!persistent) guidanceTimer = setTimeout(() => { if (guidanceToast) guidanceToast.style.display = "none"; }, 2500);
-}
-
-function hideGuidance() {
-  if (guidanceToast) guidanceToast.style.display = "none";
-  clearTimeout(guidanceTimer);
-}
-
 function showEnrollModal(enrollData) {
-  hideGuidance();
   pendingEnrollment = enrollData;
   enrollNameInput.value = "";
   enrollAgeInput.value = enrollData.estimatedAge || 18;
   enrollWeightInput.value = enrollData.estimatedWeight ? Number(enrollData.estimatedWeight).toFixed(1) : "54.0";
-  if (enrollPhotoPreview) {
-    if (enrollData.photo) { enrollPhotoPreview.src = enrollData.photo; enrollPhotoPreview.style.display = "block"; }
-    else { enrollPhotoPreview.style.display = "none"; }
-  }
+  if (enrollPhotoPreview) enrollPhotoPreview.style.display = "none";
   renderPatient({ name: "NEW STUDENT...", age: enrollData.estimatedAge || 18, weightKg: enrollData.estimatedWeight || 54.0 });
   enrollModal.style.display = "flex";
   enrollModal.setAttribute("aria-hidden", "false");
@@ -352,133 +297,131 @@ enrollConfirm.addEventListener("click", async () => {
 });
 
 enrollCancel.addEventListener("click", () => { hideEnrollModal(); faceMonitor.resolveUnknown(null); renderPatient(null); pendingEnrollment = null; });
-
 [enrollNameInput, enrollAgeInput, enrollWeightInput].forEach(inp => {
   inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); enrollConfirm.click(); } });
 });
 
 async function enrollNewStudent(name, embedding, age, weightKg, photo) {
-  const PYTHON_SERVICE_URL = "http://localhost:8001";
-  let result = null;
-
-  /* Try Python backend first */
-  try {
-    const response = await fetch(`${PYTHON_SERVICE_URL}/api/face/enroll`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, embedding, age, weight_kg: weightKg, photo }),
-      signal: AbortSignal.timeout(3000)
-    });
-    if (response.ok) {
-      result = await response.json();
-      console.log("[Main] Enrolled via Python backend:", result);
-    }
-  } catch (e) {
-    console.log("[Main] Python backend not available for enrollment");
-  }
-
-  /* Fallback to local DB */
-  if (!result) {
-    result = await window.DeltaDB.enrollStudent(name, embedding, age, weightKg, photo);
-  }
-
+  let result = await window.DeltaDB.enrollStudent(name, embedding, age, weightKg, photo);
   if (result) {
     faceMonitor.addKnownFace(result.id, name, embedding, age, weightKg, photo || result.photo);
     faceMonitor.resolveUnknown({ ...result, photo: photo || result.photo });
-    await switchStudent({ ...result, photo: photo || result.photo });
+    startScanWithStudent({ ...result, photo: photo || result.photo });
   }
 }
 
-async function switchStudent(student) {
+/* ── Student switching + scanning ── */
+function startScanWithStudent(student) {
   currentStudent = { id: student.id ?? student.studentId, name: student.name, age: student.age, weightKg: student.weight_kg ?? student.weightKg, photo: student.photo || null };
-  source.setPresence(true);
   source.setStudent(currentStudent);
-  window.DeltaDB.setActiveStudent(currentStudent);
   renderPatient(currentStudent);
-  hideGuidance();
   setAvatarUI({ live: true, scanning: false, detected: true, matched: true });
-  endCurrentSession();
-  dbSessionId = window.DeltaDB.startSession(currentStudent);
-  dbPushSample();
-  dbSampleTimer = setInterval(dbPushSample, 10000);
+  setDebug("SCANNING: " + currentStudent.name, "cyan");
+
+  scanState = "scanning";
+  faceScanner.startScan().then(faceData => {
+    if (!faceData) { setDebug("SCAN FAILED - no face data", "red"); scanState = "idle"; return; }
+    scanState = "processing";
+    setDebug("ANALYZING...", "amber");
+    const result = window.HealthEstimation.buildResult(faceData);
+    lastScanResult = result;
+    scanState = "result";
+    applyScanResult(result);
+  });
 }
 
-function dbPushSample() {
-  if (!lastSnapshot || !currentStudent || !lastSnapshot.metrics) return;
-  const m = lastSnapshot.metrics;
-  window.DeltaDB.addSample(dbSessionId, { electrolytes: m.electrolytes.value, hydration: m.hydration.value, stress: m.stress.value, sodium: m.sodium.value, lactate: m.lactate.value, temperature: m.temperature.value });
+function applyScanResult(result) {
+  const snapshot = {
+    presence: true,
+    student: currentStudent || { name: "--", age: "--", weightKg: "--" },
+    metrics: result.metrics,
+    heatStress: { pct: 0, level: "low", label: "N/A", inputs: { T: 0, E: 0, L: 0 } },
+    ph: { value: 0, zone: { id: "blue", name: "N/A", range: "", meaning: "", action: "" } },
+    assessment: { key: "ok", title: "SCAN COMPLETE", text: "AI analysis complete. Values are estimates based on facial analysis." },
+    recommendations: result.recommendations,
+  };
+  lastSnapshot = snapshot;
+  renderPatient(snapshot.student);
+  renderMetrics(snapshot);
+  renderRecommendations(snapshot.recommendations);
+  setDebug("RESULT READY - " + currentStudent.name, "green");
 }
 
-let dbSessionId = null;
-let dbSampleTimer = null;
-
-function endCurrentSession() {
-  if (dbSampleTimer) { clearInterval(dbSampleTimer); dbSampleTimer = null; }
-  if (dbSessionId) { window.DeltaDB.endSession(dbSessionId); dbSessionId = null; }
+function resetDashboard() {
+  currentStudent = null;
+  lastScanResult = null;
+  scanState = "idle";
+  source.setPresence(false);
+  source.setStudent(null);
+  window.DeltaDB.setActiveStudent(null);
+  renderPatient(null);
+  setAvatarUI({ live: true, scanning: true, detected: false, matched: false });
+  setDebug("READY - LOOK AT CAMERA", "cyan");
 }
 
-function setDebugStatus(msg) { }
-
-/* ── Avatar + face recognition ── */
-const avatarBox = document.getElementById("avatarBox");
-const camFeed = document.getElementById("camFeed");
-
-function setAvatarUI({ live, scanning, detected, matched }) {
-  if (!avatarBox) return;
-  avatarBox.classList.toggle("live", !!live);
-  avatarBox.classList.toggle("scanning", !!scanning);
-  avatarBox.classList.toggle("detected", !!detected);
-  avatarBox.classList.toggle("matched", !!matched);
-}
-
-async function bootstrapFaceMonitor() {
-  const students = await window.DeltaDB.fetchStudents();
-  if (students && students.length) faceMonitor.setKnownFaces(students);
-  faceMonitor.start();
-}
-
+/* ── Face Monitor (for enrollment flow) ── */
 const faceMonitor = window.FaceMonitor.create({
   videoEl: camFeed,
   onIdentified(student) {
     if (currentStudent && currentStudent.id === (student.id ?? student.studentId)) return;
     console.log("[Main] Recognized:", student.name);
     hideGuidance();
-    switchStudent(student);
+    startScanWithStudent(student);
   },
   onUnknown(enrollData) {
     console.log("[Main] Unknown face, opening enrollment");
+    setDebug("UNKNOWN -> ENROLL", "amber");
     setAvatarUI({ live: true, scanning: false, detected: true, matched: false });
     showEnrollModal(enrollData);
   },
   onNoFace() {
     hideGuidance();
-    if (currentStudent) { endCurrentSession(); currentStudent = null; }
+    setDebug("NO FACE", "red");
+    if (scanState === "scanning") { scanState = "idle"; setDebug("SCAN CANCELLED", "red"); }
+    if (currentStudent) { currentStudent = null; }
     source.setPresence(false);
     source.setStudent(null);
-    window.DeltaDB.setActiveStudent(null);
     renderPatient(null);
     setAvatarUI({ live: true, scanning: true, detected: false, matched: false });
   },
-  onUnclearFace(msg) { if (!currentStudent) showGuidance(msg); },
-  onClearFace() { hideGuidance(); },
+  onUnclearFace(msg) { setDebug("UNCLEAR: " + msg, "amber"); },
+  onClearFace() { setDebug("FACE OK - DETECTING", "cyan"); },
   onStatus(st) {
     if (st.state === "RUNNING") {
       setAvatarUI({ live: true, scanning: !st.models, detected: false, matched: false });
-      if (st.models) { hideGuidance(); } else { showGuidance("Loading face recognition..."); }
+      if (st.models) { setDebug("SCANNING FOR FACES...", "cyan"); hideGuidance(); }
+      else { setDebug("LOADING MODELS...", "amber"); showGuidance("Loading face recognition..."); }
     } else if (st.state === "STARTING") {
-      showGuidance("Starting camera...");
+      setDebug("STARTING CAMERA...", "amber"); showGuidance("Starting camera...");
     } else if (st.state === "ERROR" || st.state === "OFF") {
+      setDebug("ERROR: " + (st.error || "OFF"), "red");
       setAvatarUI({ live: false, scanning: false, detected: false, matched: false });
-      endCurrentSession();
       currentStudent = null;
       source.setStudent(null);
-      window.DeltaDB.setActiveStudent(null);
       renderPatient(null);
       showGuidance(st.error || "Camera unavailable. Please allow camera access and reload.", true);
     }
   },
 });
 
-bootstrapFaceMonitor();
+/* ── Face Scanner (for 5-second scan) ── */
+const faceScanner = window.FaceScan.create({
+  videoEl: camFeed,
+  onScanProgress(secs) { setDebug("SCANNING... " + secs + "s", "cyan"); },
+  onScanComplete(result) { if (result) setDebug("SCAN COMPLETE", "green"); },
+});
+
+/* ── Bootstrap ── */
+async function bootstrap() {
+  const students = await Promise.race([
+    window.DeltaDB.fetchStudents(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000)),
+  ]).catch(() => []);
+  if (students && students.length) faceMonitor.setKnownFaces(students);
+  await faceMonitor.start();
+  await faceScanner.ensureModels();
+}
+
+bootstrap();
 tickClock();
 runBootSequence(() => { renderPatient(null); });

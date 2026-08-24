@@ -150,7 +150,10 @@ window.DeltaDB = (function () {
   /* Bootstrap matcher from server; falls back to local cache offline. */
   async function fetchStudents() {
     try {
-      const r = await fetch("/api/students");
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      const r = await fetch("/api/students", { signal: controller.signal });
+      clearTimeout(timeout);
       if (!r.ok) throw new Error("HTTP " + r.status);
       const list = await r.json();
       saveKnownStudents(list);

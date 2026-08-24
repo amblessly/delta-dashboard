@@ -582,3 +582,33 @@ body {
 
   .mini-ic                 { width: 22px; height: 22px; }
 }
+
+/* ── Debug status bar ── */
+.debug-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  background: rgba(0, 0, 0, 0.85);
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--text-dim);
+  z-index: 9999;
+  min-height: 22px;
+}
+.debug-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #555;
+  flex: none;
+  transition: background 0.3s;
+}
+.debug-dot.green  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.debug-dot.amber  { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+.debug-dot.red    { background: var(--red); box-shadow: 0 0 6px var(--red); }
+.debug-dot.cyan   { background: var(--cyan); box-shadow: 0 0 6px var(--cyan); }
