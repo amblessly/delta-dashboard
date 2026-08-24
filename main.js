@@ -339,30 +339,12 @@ function onFaceLost() {
 /* ── Face Monitor ── */
 const faceMonitor = window.FaceMonitor.create({
   videoEl: camFeed,
-  onIdentified(student) {
-    /* Known face - use stored info */
-    if (faceActive && currentStudent && currentStudent.id === (student.id ?? student.studentId)) return;
-    console.log("[Main] Known face:", student.name);
-    faceActive = true;
-    currentStudent = { id: student.id ?? student.studentId, name: student.name, age: student.age, weightKg: student.weight_kg ?? student.weightKg };
-    setDebug("KNOWN: " + student.name, "green");
-    hideGuidance();
-    setAvatarUI({ live: true, scanning: false, detected: true, matched: true });
-    source.setStudent(currentStudent);
-    renderPatient(currentStudent);
-  },
-  onUnknown(enrollData) {
-    /* Unknown face - still show values, just generate from descriptor */
-    console.log("[Main] New face detected");
-    faceMonitor.resolveUnknown(null);
-    const desc = enrollData.descriptor;
-    if (desc) onFaceDetected(desc);
+  onFaceDetected(descriptor) {
+    onFaceDetected(descriptor);
   },
   onNoFace() {
     onFaceLost();
   },
-  onUnclearFace() {},
-  onClearFace() {},
   onStatus(st) {
     if (st.state === "RUNNING") {
       setAvatarUI({ live: true, scanning: true, detected: false, matched: false });
@@ -383,11 +365,7 @@ async function bootstrap() {
   if (window.location.protocol === "file:") {
     setDebug("Use HTTP server, not file://", "amber");
   }
-  const students = await Promise.race([
-    window.DeltaDB.fetchStudents(),
-    new Promise((_, r) => setTimeout(() => r(new Error("timeout")), 3000)),
-  ]).catch(() => []);
-  if (students && students.length) faceMonitor.setKnownFaces(students);
+  console.log("[Main] Starting face monitor...");
   await faceMonitor.start();
 }
 
