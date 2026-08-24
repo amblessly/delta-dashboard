@@ -1,26 +1,21 @@
 /* --------------------
-   camera-monitor.js - Camera + face recognition via Python backend.
+   camera-monitor.js - Camera + face recognition.
 
-   Pipeline:
-     video frame -> POST to Python backend (/api/face/detect)
-                 -> Backend detects face, generates embedding
-                 -> Backend matches against enrolled students
-                 -> Returns result (recognized, unknown, no_face, etc.)
-
-   State machine:
-     IDLE -> FACE_DETECTED -> SCANNING -> RECOGNIZING -> MATCHED/NEW_STUDENT
+   Tries Python backend first (port 8001), falls back to face-api.js.
    -------------------- */
 
 "use strict";
 
 window.FaceMonitor = (function () {
 
-  const SCANNING_DURATION = 5000;    /* 5 seconds scanning period */
-  const FRAME_INTERVAL = 500;        /* ms between frame captures */
+  const ANALYZE_INTERVAL = 500;
+  const INPUT_SIZE = 320;
+  const SCANNING_DURATION = 5000;
   const PYTHON_SERVICE_URL = "http://localhost:8001";
+  const MATCH_THRESHOLD = 0.52;
 
   /* ── Canvas Snapshot Helper ──────────────────────────────────── */
-  function captureFaceSnapshot(videoEl) {
+  function captureFaceSnapshot(videoEl, box) {
     if (!videoEl || !videoEl.videoWidth || !videoEl.videoHeight) return null;
     try {
       const canvas = document.createElement("canvas");
@@ -29,15 +24,24 @@ window.FaceMonitor = (function () {
       canvas.height = size;
       const ctx = canvas.getContext("2d");
 
-      const minDim = Math.min(videoEl.videoWidth, videoEl.videoHeight);
-      const sx = (videoEl.videoWidth - minDim) / 2;
-      const sy = (videoEl.videoHeight - minDim) / 2;
-
-      // Mirror horizontal to match webcam mirror display
-      ctx.translate(size, 0);
-      ctx.scale(-1, 1);
-      ctx.drawImage(videoEl, sx, sy, minDim, minDim, 0, 0, size, size);
-
+      if (box && box.width && box.height) {
+        const padX = box.width * 0.25;
+        const padY = box.height * 0.25;
+        const sx = Math.max(0, box.x - padX);
+        const sy = Math.max(0, box.y - padY);
+        const sw = Math.min(videoEl.videoWidth - sx, box.width + padX * 2);
+        const sh = Math.min(videoEl.videoHeight - sy, box.height + padY * 2);
+        ctx.translate(size, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, size, size);
+      } else {
+        const minDim = Math.min(videoEl.videoWidth, videoEl.videoHeight);
+        const sx = (videoEl.videoWidth - minDim) / 2;
+        const sy = (videoEl.videoHeight - minDim) / 2;
+        ctx.translate(size, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(videoEl, sx, sy, minDim, minDim, 0, 0, size, size);
+      }
       return canvas.toDataURL("image/png");
     } catch (e) {
       console.warn("[FaceMonitor] snapshot capture error:", e);
@@ -49,17 +53,20 @@ window.FaceMonitor = (function () {
 
     let stream = null;
     let timer = null;
-    let scanningTimer = null;
-    let serviceAvailable = false;
+    let modelsReady = false;
+    let usePythonBackend = false;
 
     /* Runtime state machine */
-    let currentState = "IDLE";        /* IDLE, SCANNING, RECOGNIZING, MATCHED, NEW_STUDENT */
     let currentStudent = null;
+    let unknownStreak = 0;
+    let identifiedStreak = 0;
+    let lastDescriptor = null;
     let lastSnapshot = null;
-    let lastEstimated = null;
     let enrollLock = false;
-    let scanningStartTime = 0;
-    let scanResults = [];             /* collected during scanning period */
+    let missCount = 0;
+
+    /* Enrolled embeddings cache */
+    let knownFaces = [];
 
     const status = { state: "OFF", error: null, models: false };
 
@@ -68,9 +75,9 @@ window.FaceMonitor = (function () {
       if (onStatus) onStatus({ ...status });
     }
 
-    /* ── Python service connectivity ──────────────────────────── */
+    /* ── Check Python Backend ──────────────────────────────────── */
 
-    async function checkServiceHealth() {
+    async function checkPythonBackend() {
       try {
         const response = await fetch(`${PYTHON_SERVICE_URL}/health`, {
           method: "GET",
@@ -78,27 +85,50 @@ window.FaceMonitor = (function () {
         });
         if (response.ok) {
           const data = await response.json();
-          serviceAvailable = data.status === "ok" && data.model_loaded;
-          if (serviceAvailable) {
+          if (data.status === "ok" && data.model_loaded) {
+            usePythonBackend = true;
+            console.log("[FaceMonitor] Python backend available, using server-side detection");
             setState({ models: true, error: null });
-            console.log("[FaceMonitor] Python service available and model loaded");
-          } else {
-            setState({ error: "Python face service model not loaded" });
-            console.warn("[FaceMonitor] Python service model not loaded");
+            return true;
           }
-          return serviceAvailable;
         }
       } catch (e) {
-        serviceAvailable = false;
-        setState({ error: "Python face service not available at " + PYTHON_SERVICE_URL });
-        console.warn("[FaceMonitor] Python service not available:", e.message);
-        return false;
+        console.log("[FaceMonitor] Python backend not available, using face-api.js");
       }
+      return false;
     }
 
-    /* ── Known faces registry (local cache from DB) ───────────── */
+    /* ── Model loading (face-api.js fallback) ──────────────────── */
 
-    let knownFaces = [];
+    async function loadModels() {
+      if (typeof faceapi === "undefined") {
+        setState({ error: "face-api.js library not loaded" });
+        return false;
+      }
+      const paths = [
+        (window.location.origin || "") + "/models",
+        "/models",
+        "./models",
+      ];
+      for (const base of paths) {
+        try {
+          console.log("[FaceMonitor] Trying models from:", base);
+          await faceapi.nets.tinyFaceDetector.loadFromUri(base);
+          await faceapi.nets.faceLandmark68Net.loadFromUri(base);
+          await faceapi.nets.faceRecognitionNet.loadFromUri(base);
+          modelsReady = true;
+          setState({ models: true, error: null });
+          console.log("[FaceMonitor] Models loaded successfully from:", base);
+          return true;
+        } catch (e) {
+          console.warn("[FaceMonitor] Model load failed from", base, ":", e.message);
+        }
+      }
+      setState({ error: "Face recognition models failed to load. Check /models folder." });
+      return false;
+    }
+
+    /* ── Known faces registry ───────────────────────────────────── */
 
     function setKnownFaces(list) {
       knownFaces = [];
@@ -114,12 +144,35 @@ window.FaceMonitor = (function () {
               age: s.age,
               weightKg: s.weight_kg ?? s.weightKg,
               photo: s.photo || null,
-              embedding: emb,
+              descriptor: new Float32Array(emb),
             });
           }
         }
       }
       console.log(`[FaceMonitor] Known faces loaded: ${knownFaces.length}`);
+    }
+
+    function euclidean(a, b) {
+      let sum = 0;
+      for (let i = 0; i < a.length; i++) {
+        const d = a[i] - b[i];
+        sum += d * d;
+      }
+      return Math.sqrt(sum);
+    }
+
+    function matchDescriptor(desc) {
+      let best = null;
+      for (const kf of knownFaces) {
+        const dist = euclidean(desc, kf.descriptor);
+        if (!best || dist < best.dist) {
+          best = { dist, student: kf };
+        }
+      }
+      if (best && best.dist < MATCH_THRESHOLD) {
+        return { matched: true, student: best.student, dist: best.dist };
+      }
+      return { matched: false, dist: best ? best.dist : null };
     }
 
     function addKnownFace(studentId, name, embedding, age, weightKg, photo) {
@@ -129,7 +182,7 @@ window.FaceMonitor = (function () {
         age: age || null,
         weightKg: weightKg || null,
         photo: photo || null,
-        embedding,
+        descriptor: new Float32Array(embedding),
       });
     }
 
@@ -161,68 +214,141 @@ window.FaceMonitor = (function () {
       });
       await videoEl.play().catch((e) => console.warn("[FaceMonitor] play() failed:", e));
 
-      /* Check Python service */
-      await checkServiceHealth();
-      if (!serviceAvailable) {
-        setState({ state: "ERROR", error: status.error });
-        return false;
+      /* Try Python backend first, then fall back to face-api.js */
+      const pythonAvailable = await checkPythonBackend();
+      if (!pythonAvailable) {
+        await loadModels();
+        if (!modelsReady) { setState({ state: "ERROR", error: status.error }); return false; }
       }
 
       setState({ state: "RUNNING", error: null });
-      timer = setInterval(analyzeFrame, FRAME_INTERVAL);
+      timer = setInterval(analyzeFrame, ANALYZE_INTERVAL);
       return true;
     }
 
     function stop() {
       if (timer) { clearInterval(timer); timer = null; }
-      if (scanningTimer) { clearTimeout(scanningTimer); scanningTimer = null; }
       if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
       if (videoEl) videoEl.srcObject = null;
       currentStudent = null;
-      currentState = "IDLE";
+      lastDescriptor = null;
       lastSnapshot = null;
       emitState();
       setState({ state: "OFF", error: null });
     }
 
-    /* ── Frame analysis via Python backend ──────────────────────── */
+    /* ── Recognition loop ───────────────────────────────────────── */
 
     async function analyzeFrame() {
-      if (!stream || !videoEl.videoWidth || !serviceAvailable || enrollLock) return;
-      
+      if (!stream || !videoEl.videoWidth || enrollLock) return;
+      if (!usePythonBackend && !modelsReady) return;
+
       try {
-        /* Capture frame as base64 */
-        const frameData = captureFrameBase64(videoEl);
-        if (!frameData) return;
-
-        /* Send to Python backend for face detection */
-        const response = await fetch(`${PYTHON_SERVICE_URL}/api/face/detect`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image: frameData }),
-          signal: AbortSignal.timeout(3000)
-        });
-
-        if (!response.ok) {
-          console.warn("[FaceMonitor] Detection request failed:", response.status);
-          return;
+        if (usePythonBackend) {
+          await analyzeFramePython();
+        } else {
+          await analyzeFrameLocal();
         }
-
-        const result = await response.json();
-        
-        if (result.status === "face_detected" && result.embedding) {
-          /* Face detected - try to match against known faces */
-          handleFaceDetected(result);
-        } else if (result.status === "no_face") {
-          handleNoFace();
-        } else if (result.status === "multiple_faces") {
-          if (onUnclearFace) onUnclearFace("Multiple faces detected. Please show only one face.");
-        } else if (result.status === "unclear") {
-          if (onUnclearFace) onUnclearFace("Please face the camera directly.");
-        }
-
       } catch (e) {
         console.warn("[FaceMonitor] frame error:", e.message);
+      }
+    }
+
+    /* Python backend analysis */
+    async function analyzeFramePython() {
+      const frameData = captureFrameBase64(videoEl);
+      if (!frameData) return;
+
+      const response = await fetch(`${PYTHON_SERVICE_URL}/api/face/detect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: frameData }),
+        signal: AbortSignal.timeout(3000)
+      });
+
+      if (!response.ok) return;
+
+      const result = await response.json();
+      lastSnapshot = captureFaceSnapshot(videoEl);
+
+      if (result.status === "face_detected" && result.embedding) {
+        /* Try local matching first */
+        const localMatch = matchDescriptor(new Float32Array(result.embedding));
+        if (localMatch.matched) {
+          handleIdentified(localMatch.student);
+        } else {
+          /* Try backend matching */
+          try {
+            const matchResponse = await fetch(`${PYTHON_SERVICE_URL}/api/face/match`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ embedding: result.embedding }),
+              signal: AbortSignal.timeout(3000)
+            });
+            if (matchResponse.ok) {
+              const matchResult = await matchResponse.json();
+              if (matchResult.matched && matchResult.student) {
+                handleIdentified({
+                  studentId: matchResult.student.id,
+                  name: matchResult.student.name,
+                  age: matchResult.student.age,
+                  weightKg: matchResult.student.weight_kg,
+                  photo: matchResult.student.photo,
+                });
+              } else {
+                handleUnknown({ embedding: result.embedding, photo: lastSnapshot });
+              }
+            }
+          } catch (e) {
+            handleUnknown({ embedding: result.embedding, photo: lastSnapshot });
+          }
+        }
+      } else if (result.status === "no_face") {
+        handleNoFace();
+      } else if (result.status === "multiple_faces") {
+        if (onUnclearFace) onUnclearFace("Multiple faces detected.");
+      } else if (result.status === "unclear") {
+        if (onUnclearFace) onUnclearFace("Please face the camera directly.");
+      }
+    }
+
+    /* Local face-api.js analysis */
+    async function analyzeFrameLocal() {
+      const opts = new faceapi.TinyFaceDetectorOptions({ inputSize: INPUT_SIZE, scoreThreshold: 0.35 });
+      const result = await faceapi
+        .detectSingleFace(videoEl, opts)
+        .withFaceLandmarks(true)
+        .withFaceDescriptor();
+
+      if (!result) {
+        handleNoFace();
+        return;
+      }
+
+      const score = result.detection?.score || 0;
+      const box = result.detection?.box;
+
+      const isCutOff = box && (
+        box.x < 10 || box.y < 10 ||
+        (box.x + box.width) > (videoEl.videoWidth - 10) ||
+        box.width < 50
+      );
+
+      if (score < 0.45 || isCutOff) {
+        if (onUnclearFace) onUnclearFace("Please face the camera directly.");
+      } else {
+        if (onClearFace) onClearFace();
+      }
+
+      const desc = result.descriptor;
+      lastDescriptor = desc;
+      lastSnapshot = captureFaceSnapshot(videoEl, box);
+
+      const match = matchDescriptor(desc);
+      if (match.matched) {
+        handleIdentified(match.student);
+      } else {
+        handleUnknown({ descriptor: Array.from(desc), photo: lastSnapshot });
       }
     }
 
@@ -233,165 +359,76 @@ window.FaceMonitor = (function () {
         canvas.width = 640;
         canvas.height = 480;
         const ctx = canvas.getContext("2d");
-        
-        /* Mirror horizontal */
         ctx.translate(canvas.width, 0);
         ctx.scale(-1, 1);
         ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
-        
         return canvas.toDataURL("image/jpeg", 0.8);
       } catch (e) {
         return null;
       }
     }
 
-    /* ── State machine handlers ──────────────────────────────── */
-
-    function handleFaceDetected(detectionResult) {
-      lastSnapshot = captureFaceSnapshot(videoEl);
-      
-      if (currentState === "IDLE") {
-        /* First face detection - start scanning period */
-        currentState = "SCANNING";
-        scanningStartTime = Date.now();
-        scanResults = [];
-        console.log("[FaceMonitor] Face detected, starting scanning period");
-        if (onClearFace) onClearFace();
-      }
-
-      if (currentState === "SCANNING") {
-        /* Collect results during scanning period */
-        scanResults.push(detectionResult);
-        
-        /* Check if scanning period complete */
-        if (Date.now() - scanningStartTime >= SCANNING_DURATION) {
-          currentState = "RECOGNIZING";
-          processScanningResults();
-        }
-      }
-    }
-
-    function processScanningResults() {
-      if (scanResults.length === 0) {
-        handleNoFace();
-        return;
-      }
-
-      /* Use the most confident detection */
-      const bestResult = scanResults.reduce((best, curr) => 
-        (curr.confidence > best.confidence) ? curr : best
-      );
-
-      /* Try to match against local known faces first */
-      const localMatch = matchLocalFaces(bestResult.embedding);
-      
-      if (localMatch) {
-        /* Matched locally */
-        currentStudent = {
-          id: localMatch.studentId,
-          name: localMatch.name,
-          age: localMatch.age,
-          weightKg: localMatch.weightKg,
-          photo: localMatch.photo || lastSnapshot,
-        };
-        currentState = "MATCHED";
-        console.log("[FaceMonitor] IDENTIFIED locally:", currentStudent.name);
-        emitState();
-      } else {
-        /* Try matching via Python backend */
-        matchViaBackend(bestResult.embedding);
-      }
-    }
-
-    async function matchViaBackend(embedding) {
-      try {
-        const response = await fetch(`${PYTHON_SERVICE_URL}/api/face/match`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ embedding }),
-          signal: AbortSignal.timeout(3000)
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          
-          if (result.matched && result.student) {
-            currentStudent = {
-              id: result.student.id,
-              name: result.student.name,
-              age: result.student.age,
-              weightKg: result.student.weight_kg,
-              photo: result.student.photo || lastSnapshot,
-            };
-            currentState = "MATCHED";
-            console.log("[FaceMonitor] IDENTIFIED via backend:", currentStudent.name);
-            emitState();
-          } else {
-            /* Unknown face - trigger enrollment */
-            currentState = "NEW_STUDENT";
-            console.log("[FaceMonitor] UNKNOWN FACE DETECTED -> Trigger Enrollment Flow");
-            if (onUnknown) {
-              enrollLock = true;
-              onUnknown({
-                embedding: embedding,
-                photo: lastSnapshot,
-                estimatedAge: 18,
-                estimatedWeight: 55.0,
-              });
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("[FaceMonitor] Backend match failed:", e.message);
-        /* Fallback to local matching only */
-        currentState = "NEW_STUDENT";
-        if (onUnknown) {
-          enrollLock = true;
-          onUnknown({
-            embedding: embedding,
-            photo: lastSnapshot,
-            estimatedAge: 18,
-            estimatedWeight: 55.0,
-          });
-        }
-      }
-    }
-
-    function matchLocalFaces(embedding) {
-      let best = null;
-      let bestScore = -1;
-
-      for (const kf of knownFaces) {
-        const score = cosineSimilarity(embedding, kf.embedding);
-        if (score > bestScore) {
-          bestScore = score;
-          best = kf;
-        }
-      }
-
-      if (best && bestScore >= 0.6) {
-        return { ...best, score: bestScore };
-      }
-      return null;
-    }
-
-    function cosineSimilarity(a, b) {
-      const dotProduct = a.reduce((sum, val, i) => sum + val * b[i], 0);
-      const normA = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0));
-      const normB = Math.sqrt(b.reduce((sum, val) => sum + val * val, 0));
-      return dotProduct / (normA * normB);
-    }
+    /* ── State handlers ──────────────────────────────────────── */
 
     function handleNoFace() {
-      if (currentState === "SCANNING" || currentState === "RECOGNIZING") {
-        /* Lost face during scanning - reset */
-        currentState = "IDLE";
-        scanResults = [];
-      }
-      
+      identifiedStreak = 0;
+      unknownStreak = 0;
+      if (onClearFace) onClearFace();
       if (currentStudent) {
-        currentStudent = null;
+        missCount++;
+        if (missCount >= 3) {
+          currentStudent = null;
+          lastDescriptor = null;
+          lastSnapshot = null;
+          emitState();
+        }
+      } else {
+        missCount = 0;
         emitState();
+      }
+    }
+
+    function handleIdentified(student) {
+      missCount = 0;
+      unknownStreak = 0;
+      identifiedStreak++;
+
+      const sameStudent = currentStudent && currentStudent.id === student.studentId;
+      if (sameStudent) return;
+
+      if (identifiedStreak >= 2) {
+        currentStudent = {
+          id: student.studentId,
+          name: student.name,
+          age: student.age,
+          weightKg: student.weightKg,
+          photo: student.photo || lastSnapshot,
+        };
+        identifiedStreak = 0;
+        console.log("[FaceMonitor] IDENTIFIED:", currentStudent.name);
+        emitState();
+      }
+    }
+
+    function handleUnknown(enrollData) {
+      identifiedStreak = 0;
+      if (currentStudent) {
+        missCount++;
+        if (missCount >= 3) {
+          currentStudent = null;
+          emitState();
+        }
+        return;
+      }
+      missCount = 0;
+      unknownStreak++;
+      if (unknownStreak >= 2) {
+        unknownStreak = 0;
+        console.log("[FaceMonitor] UNKNOWN FACE -> Enrollment Flow");
+        if (onUnknown) {
+          enrollLock = true;
+          onUnknown(enrollData);
+        }
       }
     }
 
@@ -400,17 +437,15 @@ window.FaceMonitor = (function () {
       if (!currentStudent && onNoFace) onNoFace();
     }
 
-    /* Called by main.js after the enrollment modal resolves */
     function resolveUnknown(enrolledStudentOrNull) {
       enrollLock = false;
-      currentState = "IDLE";
-      scanResults = [];
-      
+      unknownStreak = 0;
+      identifiedStreak = 0;
       if (enrolledStudentOrNull) {
         currentStudent = { ...enrolledStudentOrNull };
         emitState();
       } else {
-        emitState(); /* back to scanning */
+        emitState();
       }
     }
 
@@ -420,10 +455,10 @@ window.FaceMonitor = (function () {
       get isPresent() { return !!currentStudent; },
       get student() { return currentStudent ? { ...currentStudent } : null; },
       get status() { return { ...status }; },
+      get lastDescriptor() { return lastDescriptor ? Array.from(lastDescriptor) : null; },
       get lastSnapshot() { return lastSnapshot; },
-      get lastEstimated() { return lastEstimated; },
     };
   }
 
-  return { create };
+  return { create, MATCH_THRESHOLD };
 })();
