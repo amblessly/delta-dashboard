@@ -155,15 +155,20 @@ window.FaceMonitor = (function () {
       try {
         const opts = new faceapi.TinyFaceDetectorOptions({ inputSize: INPUT_SIZE, scoreThreshold: 0.35 });
         const result = await faceapi.detectSingleFace(videoEl, opts).withFaceLandmarks(true).withFaceDescriptor();
-        if (!result) { handleNoFace(); return; }
+        if (!result) {
+          handleNoFace();
+          return;
+        }
         const score = result.detection.score || 0;
         const box = result.detection.box;
         const isCutOff = box && (box.x < 10 || box.y < 10 || (box.x + box.width) > (videoEl.videoWidth - 10) || box.width < 50);
+
         if (score < 0.45 || isCutOff) {
-          if (onUnclearFace) onUnclearFace("Please face the camera directly.");
-        } else {
-          if (onClearFace) onClearFace();
+          handleNoFace();
+          return;
         }
+
+        missCount = 0;
         const desc = result.descriptor;
         const match = matchDescriptor(desc);
         if (match.matched) handleIdentified(match.student);
@@ -176,13 +181,11 @@ window.FaceMonitor = (function () {
     function handleNoFace() {
       identifiedStreak = 0;
       unknownStreak = 0;
-      if (onClearFace) onClearFace();
-      if (currentStudent) {
-        missCount++;
-        if (missCount >= 3) { currentStudent = null; emitState(); }
-      } else {
-        missCount = 0;
-        emitState();
+      missCount++;
+      if (missCount === 5) {
+        console.log("[FaceMonitor] Face lost (5 consecutive misses)");
+        if (currentStudent) { currentStudent = null; emitState(); }
+        if (onNoFace) onNoFace();
       }
     }
 
@@ -201,7 +204,11 @@ window.FaceMonitor = (function () {
 
     function handleUnknown(enrollData) {
       identifiedStreak = 0;
-      if (currentStudent) { missCount++; if (missCount >= 3) { currentStudent = null; emitState(); } return; }
+      if (currentStudent) {
+        missCount++;
+        if (missCount >= 5) { currentStudent = null; emitState(); }
+        return;
+      }
       missCount = 0;
       unknownStreak++;
       if (unknownStreak >= 2) {
