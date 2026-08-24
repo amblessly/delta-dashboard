@@ -321,7 +321,7 @@ function applyRecAction(id) {
   if (id === "stress") source.sendCommand({ type: "breathe" });
 }
 
-/* - Clock -------------------- */
+/* - Clock-------------------- */
 
 function tickClock() {
   const now = new Date();
@@ -331,7 +331,7 @@ function tickClock() {
 }
 setInterval(tickClock, 1000);
 
-/* - Touch press feedback on cards -------------------- */
+/* - Touch press feedback on cards-------------------- */
 document.body.style.touchAction = "manipulation";
 document.querySelectorAll(".tap").forEach(card => {
   card.addEventListener("pointerdown", () => card.classList.add("pressed"));
@@ -339,11 +339,9 @@ document.querySelectorAll(".tap").forEach(card => {
     card.addEventListener(ev, () => card.classList.remove("pressed")));
 });
 
-/* - Wiring: data source + face recognition + database -------------------- */
+/* - Wiring: data source + face recognition + database-------------------- */
 
-const source = window.DashboardData.createPythonDetectionDataSource
-  ? window.DashboardData.createPythonDetectionDataSource()
-  : window.DashboardData.createSimulatedDataSource();
+const source = window.DashboardData.createSimulatedDataSource();
 
 let lastSnapshot = null;
 
@@ -433,9 +431,9 @@ enrollConfirm.addEventListener("click", async () => {
     setTimeout(() => { enrollNameInput.style.borderColor = ""; }, 1500);
     return;
   }
-  const { descriptor, photo } = pendingEnrollment || {};
+  const { embedding, photo } = pendingEnrollment || {};
   hideEnrollModal();
-  await enrollNewStudent(name, descriptor, age, weightKg, photo);
+  await enrollNewStudent(name, embedding, age, weightKg, photo);
   pendingEnrollment = null;
 });
 
@@ -456,15 +454,52 @@ enrollCancel.addEventListener("click", () => {
   });
 });
 
-async function enrollNewStudent(name, descriptor, age, weightKg, photo) {
-  const result = await window.DeltaDB.enrollStudent(name, descriptor, age, weightKg, photo);
-  if (!result) return;
-  /* Add to face monitor for instant recognition without reload. */
-  faceMonitor.addKnownFace(result.id, name, descriptor, age, weightKg, photo || result.photo);
-  /* Unfreeze face monitor and link current student. */
-  faceMonitor.resolveUnknown(result);
-  /* Switch to this student immediately. */
-  await switchStudent({ ...result, photo: photo || result.photo });
+async function enrollNewStudent(name, embedding, age, weightKg, photo) {
+  const PYTHON_SERVICE_URL = "http://localhost:8001";
+  
+  try {
+    /* Enroll via Python backend */
+    const response = await fetch(`${PYTHON_SERVICE_URL}/api/face/enroll`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        embedding,
+        age,
+        weight_kg: weightKg,
+        photo
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Enrollment failed: ${response.status}`);
+    }
+
+    const result = await response.json();
+    console.log("[Main] Enrolled student via Python backend:", result);
+
+    /* Also save to local DB for offline support */
+    const localResult = await window.DeltaDB.enrollStudent(name, embedding, age, weightKg, photo);
+
+    /* Add to face monitor for instant recognition without reload */
+    faceMonitor.addKnownFace(result.id, name, embedding, age, weightKg, photo || result.photo);
+
+    /* Unfreeze face monitor and link current student */
+    faceMonitor.resolveUnknown({ ...result, photo: photo || result.photo });
+
+    /* Switch to this student immediately */
+    await switchStudent({ ...result, photo: photo || result.photo });
+
+  } catch (e) {
+    console.error("[Main] Enrollment error:", e);
+    /* Fallback to local-only enrollment */
+    const localResult = await window.DeltaDB.enrollStudent(name, embedding, age, weightKg, photo);
+    if (localResult) {
+      faceMonitor.addKnownFace(localResult.id, name, embedding, age, weightKg, photo || localResult.photo);
+      faceMonitor.resolveUnknown({ ...localResult, photo: photo || localResult.photo });
+      await switchStudent({ ...localResult, photo: photo || localResult.photo });
+    }
+  }
 }
 
 /* Switch the whole dashboard context to a student. */
@@ -553,7 +588,7 @@ const faceMonitor = window.FaceMonitor.create({
   },
 
   onUnknown(enrollData) {
-    /* Unknown face → enrollment modal with snapshot. */
+    /* Unknown face -> enrollment modal with snapshot. */
     console.log("[Main] Unknown face detected, opening enrollment modal");
     setAvatarUI({ live: true, scanning: false, detected: true, matched: false });
     showEnrollModal(enrollData);
@@ -609,7 +644,7 @@ const faceMonitor = window.FaceMonitor.create({
   },
 });
 
-/* Init: load students → start camera/face recognition. */
+/* Init: load students -> start camera/face recognition. */
 bootstrapFaceMonitor();
 
 tickClock();
