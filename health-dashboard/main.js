@@ -341,7 +341,9 @@ document.querySelectorAll(".tap").forEach(card => {
 
 /* - Wiring: data source + face recognition + database -------------------- */
 
-const source = window.DashboardData.createSimulatedDataSource();
+const source = window.DashboardData.createPythonDetectionDataSource
+  ? window.DashboardData.createPythonDetectionDataSource()
+  : window.DashboardData.createSimulatedDataSource();
 
 let lastSnapshot = null;
 
@@ -370,14 +372,16 @@ const guidanceToast = document.getElementById("guidanceToast");
 const guidanceText = document.getElementById("guidanceText");
 let guidanceTimer = null;
 
-function showGuidance(msg) {
+function showGuidance(msg, persistent) {
   if (!guidanceToast || (enrollModal && enrollModal.style.display !== "none")) return;
   if (guidanceText) guidanceText.textContent = msg || "Please face the camera directly";
   guidanceToast.style.display = "flex";
   clearTimeout(guidanceTimer);
-  guidanceTimer = setTimeout(() => {
-    if (guidanceToast) guidanceToast.style.display = "none";
-  }, 2500);
+  if (!persistent) {
+    guidanceTimer = setTimeout(() => {
+      if (guidanceToast) guidanceToast.style.display = "none";
+    }, 2500);
+  }
 }
 
 function hideGuidance() {
@@ -543,12 +547,14 @@ const faceMonitor = window.FaceMonitor.create({
   onIdentified(student) {
     /* Known student recognized. */
     if (currentStudent && currentStudent.id === (student.id ?? student.studentId)) return;
-    console.log("[Main] Recognized student:", student.name);
+    console.log("[Main] Recognized student:", student.name, "id=", student.id);
+    hideGuidance();
     switchStudent(student);
   },
 
   onUnknown(enrollData) {
     /* Unknown face → enrollment modal with snapshot. */
+    console.log("[Main] Unknown face detected, opening enrollment modal");
     setAvatarUI({ live: true, scanning: false, detected: true, matched: false });
     showEnrollModal(enrollData);
   },
@@ -556,12 +562,11 @@ const faceMonitor = window.FaceMonitor.create({
   onNoFace() {
     /* No face at all -> reset to zero/standby. */
     hideGuidance();
-    if (!currentStudent) {
-      renderPatient(null);
-      return;
+    if (currentStudent) {
+      endCurrentSession();
+      currentStudent = null;
     }
-    endCurrentSession();
-    currentStudent = null;
+    source.setPresence(false);
     source.setStudent(null);
     window.DeltaDB.setActiveStudent(null);
     renderPatient(null);
@@ -579,8 +584,17 @@ const faceMonitor = window.FaceMonitor.create({
   },
 
   onStatus(st) {
+    console.log("[Main] FaceMonitor status:", st.state, st.error || "");
     if (st.state === "RUNNING") {
       setAvatarUI({ live: true, scanning: !st.models, detected: false, matched: false });
+      if (st.models) {
+        console.log("[Main] Camera active, models loaded - scanning for faces...");
+        hideGuidance();
+      } else {
+        showGuidance("Loading face recognition models...");
+      }
+    } else if (st.state === "STARTING") {
+      showGuidance("Starting camera...");
     } else if (st.state === "ERROR" || st.state === "OFF") {
       setAvatarUI({ live: false, scanning: false, detected: false, matched: false });
       endCurrentSession();
@@ -588,6 +602,9 @@ const faceMonitor = window.FaceMonitor.create({
       source.setStudent(null);
       window.DeltaDB.setActiveStudent(null);
       renderPatient(null);
+      const msg = st.error || "Camera unavailable. Please allow camera access and reload.";
+      showGuidance(msg, true);
+      console.error("[Main] FaceMonitor error:", st.error);
     }
   },
 });

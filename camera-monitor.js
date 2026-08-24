@@ -119,24 +119,31 @@ window.FaceMonitor = (function () {
 
     async function loadModels() {
       if (typeof faceapi === "undefined") {
-        setState({ error: "face-api.js not loaded" });
+        setState({ error: "face-api.js library not loaded" });
         return false;
       }
-      const base = (typeof window !== "undefined" && window.location?.origin)
-        ? window.location.origin + "/models"
-        : "/models";
-      try {
-        await faceapi.nets.tinyFaceDetector.loadFromUri(base);
-        await faceapi.nets.faceLandmark68Net.loadFromUri(base);
-        await faceapi.nets.faceRecognitionNet.loadFromUri(base);
-        modelsReady = true;
-        setState({ models: true, error: null });
-        return true;
-      } catch (e) {
-        console.warn("[FaceMonitor] model load failed:", e);
-        setState({ error: "Model files missing at " + base });
-        return false;
+      /* Try multiple model paths for compatibility */
+      const paths = [
+        (window.location.origin || "") + "/models",
+        "/models",
+        "./models",
+      ];
+      for (const base of paths) {
+        try {
+          console.log("[FaceMonitor] Trying models from:", base);
+          await faceapi.nets.tinyFaceDetector.loadFromUri(base);
+          await faceapi.nets.faceLandmark68Net.loadFromUri(base);
+          await faceapi.nets.faceRecognitionNet.loadFromUri(base);
+          modelsReady = true;
+          setState({ models: true, error: null });
+          console.log("[FaceMonitor] Models loaded successfully from:", base);
+          return true;
+        } catch (e) {
+          console.warn("[FaceMonitor] Model load failed from", base, ":", e.message);
+        }
       }
+      setState({ error: "Face recognition models failed to load. Check /models folder." });
+      return false;
     }
 
     /* ── Known faces registry ───────────────────────────────────── */
@@ -249,7 +256,7 @@ window.FaceMonitor = (function () {
     async function analyzeFrame() {
       if (!stream || !videoEl.videoWidth || !modelsReady || enrollLock) return;
       try {
-        const opts = new faceapi.TinyFaceDetectorOptions({ inputSize: INPUT_SIZE, scoreThreshold: 0.40 });
+        const opts = new faceapi.TinyFaceDetectorOptions({ inputSize: INPUT_SIZE, scoreThreshold: 0.35 });
         const result = await faceapi
           .detectSingleFace(videoEl, opts)
           .withFaceLandmarks(true)
@@ -271,7 +278,7 @@ window.FaceMonitor = (function () {
           box.width < 50
         );
 
-        if (score < 0.52 || isCutOff) {
+        if (score < 0.45 || isCutOff) {
           if (onUnclearFace) onUnclearFace("Please face the camera directly.");
         } else {
           if (onClearFace) onClearFace();
