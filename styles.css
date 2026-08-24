@@ -612,3 +612,157 @@ body {
 .debug-dot.amber  { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
 .debug-dot.red    { background: var(--red); box-shadow: 0 0 6px var(--red); }
 .debug-dot.cyan   { background: var(--cyan); box-shadow: 0 0 6px var(--cyan); }
+
+/* ── Scanner Overlay ── */
+.scanner-overlay {
+  position: fixed; inset: 0; z-index: 80;
+  background: rgba(11, 17, 32, 0.97);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  transition: opacity .4s;
+}
+.scanner-overlay.active { display: flex; }
+.scanner-overlay.hide { opacity: 0; pointer-events: none; }
+
+.scanner-box {
+  width: 320px;
+  text-align: center;
+}
+
+.scanner-camera-wrap {
+  position: relative;
+  width: 280px;
+  height: 280px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 3px solid var(--cyan);
+  box-shadow: 0 0 30px rgba(34, 211, 238, 0.3);
+}
+
+.scanner-camera-wrap video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+/* Scanning frame corners */
+.scanner-frame {
+  position: absolute;
+  inset: 20px;
+  pointer-events: none;
+}
+
+.sf-corner {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-color: var(--cyan);
+  border-style: solid;
+  border-width: 0;
+}
+.sf-tl { top: 0; left: 0; border-top-width: 3px; border-left-width: 3px; border-radius: 4px 0 0 0; }
+.sf-tr { top: 0; right: 0; border-top-width: 3px; border-right-width: 3px; border-radius: 0 4px 0 0; }
+.sf-bl { bottom: 0; left: 0; border-bottom-width: 3px; border-left-width: 3px; border-radius: 0 0 0 4px; }
+.sf-br { bottom: 0; right: 0; border-bottom-width: 3px; border-right-width: 3px; border-radius: 0 0 4px 0; }
+
+/* Scanning line animation */
+.sf-line {
+  position: absolute;
+  left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+  box-shadow: 0 0 12px var(--cyan);
+  animation: scan-line 2s ease-in-out infinite;
+  opacity: 0;
+}
+.scanner-overlay.scanning .sf-line { opacity: 1; }
+.scanner-overlay.detected .sf-line { opacity: 0; animation: none; }
+
+@keyframes scan-line {
+  0%, 100% { top: 10%; }
+  50% { top: 85%; }
+}
+
+/* Scanner status text */
+.scanner-status {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--cyan);
+  margin-top: 12px;
+  animation: status-blink 1.5s ease-in-out infinite;
+}
+.scanner-overlay.detected .scanner-status { color: var(--green); animation: none; }
+
+@keyframes status-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.scanner-hint {
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 1px;
+  margin-top: 8px;
+}
+
+/* ── Save Section (bottom of dashboard) ── */
+.save-section {
+  margin-top: auto;
+}
+
+.save-card {
+  padding: 10px 14px;
+}
+
+.save-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.save-input {
+  flex: 1;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color .2s;
+}
+.save-input:focus { border-color: var(--cyan); }
+.save-input::placeholder { color: var(--text-faint); }
+
+.save-btn {
+  background: var(--cyan);
+  color: #001018;
+  border: none;
+  border-radius: 6px;
+  padding: 9px 16px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity .2s, transform .1s;
+}
+.save-btn:hover { opacity: 0.9; }
+.save-btn:active { transform: scale(0.97); }
+.save-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.save-hint {
+  font-size: 9px;
+  color: var(--text-faint);
+  letter-spacing: 1px;
+  margin-top: 6px;
+  text-align: center;
+}
+.save-hint.success { color: var(--green); }
+.save-hint.error { color: var(--red); }
