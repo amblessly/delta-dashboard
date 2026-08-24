@@ -257,6 +257,24 @@ function setAvatarUI({ live, scanning, detected, matched }) {
   avatarBox.classList.toggle("matched", !!matched);
 }
 
+/* ── Guidance toast ── */
+const guidanceToast = document.getElementById("guidanceToast");
+const guidanceText = document.getElementById("guidanceText");
+let guidanceTimer = null;
+
+function showGuidance(msg, persistent) {
+  if (!guidanceToast) return;
+  if (guidanceText) guidanceText.textContent = msg || "Please face the camera directly";
+  guidanceToast.style.display = "flex";
+  clearTimeout(guidanceTimer);
+  if (!persistent) guidanceTimer = setTimeout(() => { if (guidanceToast) guidanceToast.style.display = "none"; }, 2500);
+}
+
+function hideGuidance() {
+  if (guidanceToast) guidanceToast.style.display = "none";
+  clearTimeout(guidanceTimer);
+}
+
 /* ── Enrollment modal ── */
 const enrollModal = document.getElementById("enrollModal");
 const enrollNameInput = document.getElementById("enrollNameInput");
@@ -413,13 +431,31 @@ const faceScanner = window.FaceScan.create({
 
 /* ── Bootstrap ── */
 async function bootstrap() {
+  const isFileProtocol = window.location.protocol === "file:";
+  if (isFileProtocol) {
+    console.warn("[Main] Running from file:// - models may not load. Use: python -m http.server");
+    setDebug("WARNING: Use HTTP server, not file://", "amber");
+  }
+
   const students = await Promise.race([
     window.DeltaDB.fetchStudents(),
     new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000)),
   ]).catch(() => []);
   if (students && students.length) faceMonitor.setKnownFaces(students);
-  await faceMonitor.start();
+
+  console.log("[Main] Starting face monitor...");
+  const started = await faceMonitor.start();
+  if (!started) {
+    console.error("[Main] Face monitor failed to start");
+    setDebug("FAILED - check console (F12)", "red");
+    showGuidance("Detection failed. Open browser console (F12) for details.", true);
+    return;
+  }
+
+  console.log("[Main] Loading scan models...");
   await faceScanner.ensureModels();
+  setDebug("READY - LOOK AT CAMERA", "cyan");
+  console.log("[Main] System ready");
 }
 
 bootstrap();

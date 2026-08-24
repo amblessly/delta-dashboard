@@ -36,18 +36,24 @@ window.FaceMonitor = (function () {
       ];
       for (const base of paths) {
         try {
-          await faceapi.nets.tinyFaceDetector.loadFromUri(base);
-          await faceapi.nets.faceLandmark68Net.loadFromUri(base);
-          await faceapi.nets.faceRecognitionNet.loadFromUri(base);
+          console.log("[FaceMonitor] Trying models from:", base);
+          await Promise.race([
+            Promise.all([
+              faceapi.nets.tinyFaceDetector.loadFromUri(base),
+              faceapi.nets.faceLandmark68Net.loadFromUri(base),
+              faceapi.nets.faceRecognitionNet.loadFromUri(base),
+            ]),
+            new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 5000)),
+          ]);
           modelsReady = true;
           setState({ models: true, error: null });
           console.log("[FaceMonitor] Models loaded from:", base);
           return true;
         } catch (e) {
-          console.warn("[FaceMonitor] Model load failed from", base);
+          console.warn("[FaceMonitor] Model load failed from", base, e.message);
         }
       }
-      setState({ error: "Face recognition models failed to load. Check /models folder." });
+      setState({ state: "ERROR", error: "Face recognition models failed to load." });
       return false;
     }
 
@@ -100,21 +106,36 @@ window.FaceMonitor = (function () {
         return false;
       }
       setState({ state: "STARTING", error: null });
+      console.log("[FaceMonitor] Requesting camera...");
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
           audio: false,
         });
+        console.log("[FaceMonitor] Camera obtained");
       } catch (e) {
+        console.error("[FaceMonitor] Camera error:", e.name);
         setState({ state: "ERROR", error: e.name === "NotAllowedError" ? "Camera permission denied" : "Camera unavailable" });
         return false;
       }
       videoEl.srcObject = stream;
-      await new Promise(r => { if (videoEl.readyState >= 1) return r(); videoEl.onloadedmetadata = () => r(); });
-      await videoEl.play().catch(() => {});
-      await loadModels();
-      if (!modelsReady) return false;
+      console.log("[FaceMonitor] Waiting for video...");
+      await new Promise(r => {
+        if (videoEl.readyState >= 1) return r();
+        videoEl.onloadedmetadata = () => r();
+        setTimeout(r, 3000);
+      });
+      console.log("[FaceMonitor] Video ready:", videoEl.videoWidth, "x", videoEl.videoHeight);
+      await videoEl.play().catch(e => console.warn("[FaceMonitor] play():", e));
+      console.log("[FaceMonitor] Loading models...");
+      const loaded = await loadModels();
+      if (!loaded) {
+        console.error("[FaceMonitor] Models failed, detection unavailable");
+        setState({ state: "ERROR", error: "Models failed. Open via HTTP server (not file://). Check console." });
+        return false;
+      }
       setState({ state: "RUNNING", error: null });
+      console.log("[FaceMonitor] RUNNING - detection loop active");
       timer = setInterval(analyzeFrame, ANALYZE_INTERVAL);
       return true;
     }
