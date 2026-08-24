@@ -227,14 +227,13 @@ document.querySelectorAll(".tap").forEach(card => {
 });
 
 /* ════════════════════════════════════════════════════════════════
-   WIRED DATA + SCANNING
+   SIMPLIFIED: Any face → instant values
    ════════════════════════════════════════════════════════════════ */
 
 const source = window.DashboardData.createSimulatedDataSource();
 let lastSnapshot = null;
 let currentStudent = null;
-let scanState = "idle"; /* idle | scanning | processing | result */
-let lastScanResult = null;
+let faceActive = false;
 
 source.start(snapshot => {
   lastSnapshot = snapshot;
@@ -243,7 +242,6 @@ source.start(snapshot => {
   renderHeatStress(snapshot);
   renderPhStrip(snapshot);
   renderRecommendations(snapshot.recommendations);
-  if (snapshot.presence) setDebug("ACTIVE: " + (snapshot.student?.name || "unknown"), "green");
 });
 
 /* ── Avatar ── */
@@ -261,7 +259,6 @@ function setAvatarUI({ live, scanning, detected, matched }) {
 const guidanceToast = document.getElementById("guidanceToast");
 const guidanceText = document.getElementById("guidanceText");
 let guidanceTimer = null;
-
 function showGuidance(msg, persistent) {
   if (!guidanceToast) return;
   if (guidanceText) guidanceText.textContent = msg || "Please face the camera directly";
@@ -269,193 +266,129 @@ function showGuidance(msg, persistent) {
   clearTimeout(guidanceTimer);
   if (!persistent) guidanceTimer = setTimeout(() => { if (guidanceToast) guidanceToast.style.display = "none"; }, 2500);
 }
-
 function hideGuidance() {
   if (guidanceToast) guidanceToast.style.display = "none";
   clearTimeout(guidanceTimer);
 }
 
-/* ── Enrollment modal ── */
-const enrollModal = document.getElementById("enrollModal");
-const enrollNameInput = document.getElementById("enrollNameInput");
-const enrollAgeInput = document.getElementById("enrollAgeInput");
-const enrollWeightInput = document.getElementById("enrollWeightInput");
-const enrollPhotoPreview = document.getElementById("enrollPhotoPreview");
-const enrollConfirm = document.getElementById("enrollConfirm");
-const enrollCancel = document.getElementById("enrollCancel");
-let pendingEnrollment = null;
-
-function showEnrollModal(enrollData) {
-  pendingEnrollment = enrollData;
-  enrollNameInput.value = "";
-  enrollAgeInput.value = enrollData.estimatedAge || 18;
-  enrollWeightInput.value = enrollData.estimatedWeight ? Number(enrollData.estimatedWeight).toFixed(1) : "54.0";
-  if (enrollPhotoPreview) enrollPhotoPreview.style.display = "none";
-  renderPatient({ name: "NEW STUDENT...", age: enrollData.estimatedAge || 18, weightKg: enrollData.estimatedWeight || 54.0 });
-  enrollModal.style.display = "flex";
-  enrollModal.setAttribute("aria-hidden", "false");
-  setTimeout(() => enrollNameInput.focus(), 80);
+/* ── Generate fake student from face descriptor hash ── */
+function faceToStudent(descriptor) {
+  let hash = 0;
+  const arr = descriptor instanceof Float32Array ? descriptor : Array.from(descriptor);
+  for (let i = 0; i < arr.length; i++) hash = ((hash << 5) - hash + Math.round(arr[i] * 10000)) | 0;
+  const seed = Math.abs(hash);
+  const rng = (function(s) { return function() { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; })(seed);
+  const age = Math.round(18 + rng() * 25);
+  const weight = Math.round(50 + rng() * 30);
+  return { id: "face_" + seed, name: "Student " + (seed % 1000), age: age, weightKg: weight };
 }
 
-function hideEnrollModal() {
-  enrollModal.style.display = "none";
-  enrollModal.setAttribute("aria-hidden", "true");
-  pendingEnrollment = null;
-}
+/* ── Face detected → show values instantly ── */
+function onFaceDetected(descriptor) {
+  if (faceActive) return;
+  faceActive = true;
 
-enrollConfirm.addEventListener("click", async () => {
-  const name = enrollNameInput.value.trim();
-  const age = parseInt(enrollAgeInput.value, 10) || (pendingEnrollment ? pendingEnrollment.estimatedAge : 18);
-  const weightKg = parseFloat(enrollWeightInput.value) || (pendingEnrollment ? pendingEnrollment.estimatedWeight : 54.0);
-  if (!name) { enrollNameInput.focus(); enrollNameInput.style.borderColor = "var(--red)"; setTimeout(() => { enrollNameInput.style.borderColor = ""; }, 1500); return; }
-  const { descriptor, embedding, photo } = pendingEnrollment || {};
-  hideEnrollModal();
-  await enrollNewStudent(name, descriptor || embedding, age, weightKg, photo);
-  pendingEnrollment = null;
-});
+  const student = faceToStudent(descriptor);
+  currentStudent = student;
 
-enrollCancel.addEventListener("click", () => { hideEnrollModal(); faceMonitor.resolveUnknown(null); renderPatient(null); pendingEnrollment = null; });
-[enrollNameInput, enrollAgeInput, enrollWeightInput].forEach(inp => {
-  inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); enrollConfirm.click(); } });
-});
-
-async function enrollNewStudent(name, embedding, age, weightKg, photo) {
-  let result = await window.DeltaDB.enrollStudent(name, embedding, age, weightKg, photo);
-  if (result) {
-    faceMonitor.addKnownFace(result.id, name, embedding, age, weightKg, photo || result.photo);
-    faceMonitor.resolveUnknown({ ...result, photo: photo || result.photo });
-    startScanWithStudent({ ...result, photo: photo || result.photo });
-  }
-}
-
-/* ── Student switching + scanning ── */
-function startScanWithStudent(student) {
-  currentStudent = { id: student.id ?? student.studentId, name: student.name, age: student.age, weightKg: student.weight_kg ?? student.weightKg, photo: student.photo || null };
-  source.setStudent(currentStudent);
-  renderPatient(currentStudent);
+  console.log("[Main] Face detected, showing values for:", student.name);
+  setDebug("DETECTED: " + student.name, "green");
+  hideGuidance();
   setAvatarUI({ live: true, scanning: false, detected: true, matched: true });
-  setDebug("SCANNING: " + currentStudent.name, "cyan");
 
-  scanState = "scanning";
-  faceScanner.startScan().then(faceData => {
-    if (!faceData) { setDebug("SCAN FAILED - no face data", "red"); scanState = "idle"; return; }
-    scanState = "processing";
-    setDebug("ANALYZING...", "amber");
-    const result = window.HealthEstimation.buildResult(faceData);
-    lastScanResult = result;
-    scanState = "result";
-    applyScanResult(result);
-  });
-}
+  /* Generate health estimation from face */
+  const faceData = {
+    descriptor: descriptor instanceof Float32Array ? descriptor : new Float32Array(Array.from(descriptor)),
+    landmarks: { positions: [] },
+    box: { x: 0, y: 0, width: 100, height: 100 },
+    score: 0.9,
+  };
+  const result = window.HealthEstimation.buildResult(faceData);
 
-function applyScanResult(result) {
+  /* Apply to dashboard */
   const snapshot = {
     presence: true,
-    student: currentStudent || { name: "--", age: "--", weightKg: "--" },
+    student: student,
     metrics: result.metrics,
     heatStress: { pct: 0, level: "low", label: "N/A", inputs: { T: 0, E: 0, L: 0 } },
     ph: { value: 0, zone: { id: "blue", name: "N/A", range: "", meaning: "", action: "" } },
-    assessment: { key: "ok", title: "SCAN COMPLETE", text: "AI analysis complete. Values are estimates based on facial analysis." },
+    assessment: { key: "ok", title: "ACTIVE", text: "AI analysis complete." },
     recommendations: result.recommendations,
   };
   lastSnapshot = snapshot;
   renderPatient(snapshot.student);
   renderMetrics(snapshot);
   renderRecommendations(snapshot.recommendations);
-  setDebug("RESULT READY - " + currentStudent.name, "green");
 }
 
-function resetDashboard() {
+/* ── No face → standby ── */
+function onFaceLost() {
+  if (!faceActive) return;
+  faceActive = false;
   currentStudent = null;
-  lastScanResult = null;
-  scanState = "idle";
+
+  console.log("[Main] Face lost, standby");
+  setDebug("NO FACE - LOOK AT CAMERA", "red");
+  setAvatarUI({ live: true, scanning: true, detected: false, matched: false });
+
   source.setPresence(false);
   source.setStudent(null);
-  window.DeltaDB.setActiveStudent(null);
   renderPatient(null);
-  setAvatarUI({ live: true, scanning: true, detected: false, matched: false });
-  setDebug("READY - LOOK AT CAMERA", "cyan");
 }
 
-/* ── Face Monitor (for enrollment flow) ── */
+/* ── Face Monitor ── */
 const faceMonitor = window.FaceMonitor.create({
   videoEl: camFeed,
   onIdentified(student) {
-    if (currentStudent && currentStudent.id === (student.id ?? student.studentId)) return;
-    console.log("[Main] Recognized:", student.name);
+    /* Known face - use stored info */
+    if (faceActive && currentStudent && currentStudent.id === (student.id ?? student.studentId)) return;
+    console.log("[Main] Known face:", student.name);
+    faceActive = true;
+    currentStudent = { id: student.id ?? student.studentId, name: student.name, age: student.age, weightKg: student.weight_kg ?? student.weightKg };
+    setDebug("KNOWN: " + student.name, "green");
     hideGuidance();
-    startScanWithStudent(student);
+    setAvatarUI({ live: true, scanning: false, detected: true, matched: true });
+    source.setStudent(currentStudent);
+    renderPatient(currentStudent);
   },
   onUnknown(enrollData) {
-    console.log("[Main] Unknown face, opening enrollment");
-    setDebug("UNKNOWN -> ENROLL", "amber");
-    setAvatarUI({ live: true, scanning: false, detected: true, matched: false });
-    showEnrollModal(enrollData);
+    /* Unknown face - still show values, just generate from descriptor */
+    console.log("[Main] New face detected");
+    faceMonitor.resolveUnknown(null);
+    const desc = enrollData.descriptor;
+    if (desc) onFaceDetected(desc);
   },
   onNoFace() {
-    hideGuidance();
-    setDebug("NO FACE", "red");
-    if (scanState === "scanning") { scanState = "idle"; setDebug("SCAN CANCELLED", "red"); }
-    if (currentStudent) { currentStudent = null; }
-    source.setPresence(false);
-    source.setStudent(null);
-    renderPatient(null);
-    setAvatarUI({ live: true, scanning: true, detected: false, matched: false });
+    onFaceLost();
   },
-  onUnclearFace(msg) { setDebug("UNCLEAR: " + msg, "amber"); },
-  onClearFace() { setDebug("FACE OK - DETECTING", "cyan"); },
+  onUnclearFace() {},
+  onClearFace() {},
   onStatus(st) {
     if (st.state === "RUNNING") {
-      setAvatarUI({ live: true, scanning: !st.models, detected: false, matched: false });
-      if (st.models) { setDebug("SCANNING FOR FACES...", "cyan"); hideGuidance(); }
+      setAvatarUI({ live: true, scanning: true, detected: false, matched: false });
+      if (st.models) { setDebug("READY - LOOK AT CAMERA", "cyan"); hideGuidance(); }
       else { setDebug("LOADING MODELS...", "amber"); showGuidance("Loading face recognition..."); }
     } else if (st.state === "STARTING") {
       setDebug("STARTING CAMERA...", "amber"); showGuidance("Starting camera...");
     } else if (st.state === "ERROR" || st.state === "OFF") {
       setDebug("ERROR: " + (st.error || "OFF"), "red");
       setAvatarUI({ live: false, scanning: false, detected: false, matched: false });
-      currentStudent = null;
-      source.setStudent(null);
-      renderPatient(null);
-      showGuidance(st.error || "Camera unavailable. Please allow camera access and reload.", true);
+      showGuidance(st.error || "Camera unavailable.", true);
     }
   },
 });
 
-/* ── Face Scanner (for 5-second scan) ── */
-const faceScanner = window.FaceScan.create({
-  videoEl: camFeed,
-  onScanProgress(secs) { setDebug("SCANNING... " + secs + "s", "cyan"); },
-  onScanComplete(result) { if (result) setDebug("SCAN COMPLETE", "green"); },
-});
-
 /* ── Bootstrap ── */
 async function bootstrap() {
-  const isFileProtocol = window.location.protocol === "file:";
-  if (isFileProtocol) {
-    console.warn("[Main] Running from file:// - models may not load. Use: python -m http.server");
-    setDebug("WARNING: Use HTTP server, not file://", "amber");
+  if (window.location.protocol === "file:") {
+    setDebug("Use HTTP server, not file://", "amber");
   }
-
   const students = await Promise.race([
     window.DeltaDB.fetchStudents(),
-    new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000)),
+    new Promise((_, r) => setTimeout(() => r(new Error("timeout")), 3000)),
   ]).catch(() => []);
   if (students && students.length) faceMonitor.setKnownFaces(students);
-
-  console.log("[Main] Starting face monitor...");
-  const started = await faceMonitor.start();
-  if (!started) {
-    console.error("[Main] Face monitor failed to start");
-    setDebug("FAILED - check console (F12)", "red");
-    showGuidance("Detection failed. Open browser console (F12) for details.", true);
-    return;
-  }
-
-  console.log("[Main] Loading scan models...");
-  await faceScanner.ensureModels();
-  setDebug("READY - LOOK AT CAMERA", "cyan");
-  console.log("[Main] System ready");
+  await faceMonitor.start();
 }
 
 bootstrap();

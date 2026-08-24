@@ -195,7 +195,7 @@ window.FaceMonitor = (function () {
       identifiedStreak++;
       const same = currentStudent && currentStudent.id === student.studentId;
       if (same) return;
-      if (identifiedStreak >= 2) {
+      if (identifiedStreak >= 1) {
         currentStudent = { id: student.studentId, name: student.name, age: student.age, weightKg: student.weightKg, photo: student.photo };
         identifiedStreak = 0;
         emitState();
@@ -211,7 +211,7 @@ window.FaceMonitor = (function () {
       }
       missCount = 0;
       unknownStreak++;
-      if (unknownStreak >= 2) {
+      if (unknownStreak >= 1) {
         unknownStreak = 0;
         if (onUnknown) { enrollLock = true; onUnknown(enrollData); }
       }
