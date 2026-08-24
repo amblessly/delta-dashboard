@@ -32,34 +32,58 @@ function runBootSequence(done) {
   const overlay = document.getElementById("bootOverlay");
   const status = document.getElementById("bootStatus");
   const bar = document.getElementById("bootBar");
+  if (!overlay) {
+    if (done) done();
+    return;
+  }
 
   let i = 0;
   const step = () => {
-    status.textContent = bootMessages[i];
-    bar.style.width = `${Math.round(((i + 1) / bootMessages.length) * 100)}%`;
+    if (status && bootMessages[i]) status.textContent = bootMessages[i];
+    if (bar) bar.style.width = `${Math.round(((i + 1) / bootMessages.length) * 100)}%`;
     i += 1;
     if (i < bootMessages.length) {
-      setTimeout(step, 450);
+      setTimeout(step, 250);
     } else {
       setTimeout(() => {
         overlay.classList.add("hide");
-        done();
-      }, 500);
+        setTimeout(() => {
+          overlay.style.display = "none";
+        }, 400);
+        if (done) done();
+      }, 300);
     }
   };
   step();
+
+  // Safety fallback: force hide after 2.5s no matter what
+  setTimeout(() => {
+    if (overlay && overlay.style.display !== "none") {
+      overlay.classList.add("hide");
+      overlay.style.display = "none";
+      if (done) done();
+    }
+  }, 2500);
 }
 
 /* - Rendering -------------------- */
 
 function renderPatient(student) {
-  if (!student) return;
   const nameEl = document.querySelector("[data-role=patient-name]");
   const ageEl = document.querySelector("[data-role=patient-age]");
   const weightEl = document.querySelector("[data-role=patient-weight]");
-  if (nameEl) nameEl.textContent = student.name;
-  if (ageEl) ageEl.textContent = student.age;
-  if (weightEl) weightEl.textContent = Number(student.weightKg).toFixed(1);
+  if (!student || student.name === "--") {
+    if (nameEl) nameEl.textContent = "--";
+    if (ageEl) ageEl.textContent = "--";
+    if (weightEl) weightEl.textContent = "--";
+    return;
+  }
+  if (nameEl) nameEl.textContent = student.name || "--";
+  if (ageEl) ageEl.textContent = (student.age != null && student.age !== "--") ? student.age : "--";
+  if (weightEl) {
+    const w = student.weightKg ?? student.weight_kg;
+    weightEl.textContent = (w != null && w !== "--") ? Number(w).toFixed(1) : "--";
+  }
 }
 
 /* Measurement-verification note under the recommendations.
@@ -317,7 +341,7 @@ document.querySelectorAll(".tap").forEach(card => {
 
 /* - Wiring: data source + face recognition + database -------------------- */
 
-const source = window.DashboardData.createPythonDetectionDataSource();
+const source = window.DashboardData.createSimulatedDataSource();
 
 let lastSnapshot = null;
 
@@ -332,63 +356,129 @@ source.start(snapshot => {
 });
 
 /* ── Enrollment modal ── */
-
 const enrollModal = document.getElementById("enrollModal");
 const enrollNameInput = document.getElementById("enrollNameInput");
 const enrollAgeInput = document.getElementById("enrollAgeInput");
 const enrollWeightInput = document.getElementById("enrollWeightInput");
+const enrollPhotoPreview = document.getElementById("enrollPhotoPreview");
 const enrollConfirm = document.getElementById("enrollConfirm");
 const enrollCancel = document.getElementById("enrollCancel");
-let pendingDescriptor = null;
+let pendingEnrollment = null;
 
-function showEnrollModal(descriptor) {
-  pendingDescriptor = descriptor;
+/* ── Guidance toast ── */
+const guidanceToast = document.getElementById("guidanceToast");
+const guidanceText = document.getElementById("guidanceText");
+let guidanceTimer = null;
+
+function showGuidance(msg) {
+  if (!guidanceToast || (enrollModal && enrollModal.style.display !== "none")) return;
+  if (guidanceText) guidanceText.textContent = msg || "Please face the camera directly";
+  guidanceToast.style.display = "flex";
+  clearTimeout(guidanceTimer);
+  guidanceTimer = setTimeout(() => {
+    if (guidanceToast) guidanceToast.style.display = "none";
+  }, 2500);
+}
+
+function hideGuidance() {
+  if (guidanceToast) guidanceToast.style.display = "none";
+  clearTimeout(guidanceTimer);
+}
+
+function showEnrollModal(enrollData) {
+  hideGuidance();
+  pendingEnrollment = enrollData;
   enrollNameInput.value = "";
-  enrollAgeInput.value = "";
-  enrollWeightInput.value = "";
+  enrollAgeInput.value = enrollData.estimatedAge || 18;
+  enrollWeightInput.value = enrollData.estimatedWeight ? Number(enrollData.estimatedWeight).toFixed(1) : "54.0";
+
+  if (enrollPhotoPreview) {
+    if (enrollData.photo) {
+      enrollPhotoPreview.src = enrollData.photo;
+      enrollPhotoPreview.style.display = "block";
+    } else {
+      enrollPhotoPreview.style.display = "none";
+    }
+  }
+
+  /* Temporarily populate dashboard with estimated values so user sees immediate feedback */
+  renderPatient({
+    name: "NEW STUDENT...",
+    age: enrollData.estimatedAge || 18,
+    weightKg: enrollData.estimatedWeight || 54.0,
+  });
+
   enrollModal.style.display = "flex";
   enrollModal.setAttribute("aria-hidden", "false");
-  setTimeout(() => enrollNameInput.focus(), 50);
+  setTimeout(() => enrollNameInput.focus(), 80);
 }
 
 function hideEnrollModal() {
   enrollModal.style.display = "none";
   enrollModal.setAttribute("aria-hidden", "true");
-  pendingDescriptor = null;
+  pendingEnrollment = null;
 }
 
 enrollConfirm.addEventListener("click", async () => {
   const name = enrollNameInput.value.trim();
-  const age = parseInt(enrollAgeInput.value, 10);
-  const weightKg = parseFloat(enrollWeightInput.value);
-  if (!name) return;
-  const descriptor = pendingDescriptor;
+  const age = parseInt(enrollAgeInput.value, 10) || (pendingEnrollment ? pendingEnrollment.estimatedAge : 18);
+  const weightKg = parseFloat(enrollWeightInput.value) || (pendingEnrollment ? pendingEnrollment.estimatedWeight : 54.0);
+  if (!name) {
+    enrollNameInput.focus();
+    enrollNameInput.style.borderColor = "var(--red)";
+    setTimeout(() => { enrollNameInput.style.borderColor = ""; }, 1500);
+    return;
+  }
+  const { descriptor, photo } = pendingEnrollment || {};
   hideEnrollModal();
-  await enrollNewStudent(name, descriptor, age, weightKg);
-  pendingDescriptor = null;
+  await enrollNewStudent(name, descriptor, age, weightKg, photo);
+  pendingEnrollment = null;
 });
 
 enrollCancel.addEventListener("click", () => {
   hideEnrollModal();
   faceMonitor.resolveUnknown(null);
-  pendingDescriptor = null;
+  renderPatient(null);
+  pendingEnrollment = null;
 });
 
-async function enrollNewStudent(name, descriptor, age, weightKg) {
-  const result = await window.DeltaDB.enrollStudent(name, descriptor, age, weightKg);
+// Also allow pressing "Enter" in modal inputs to save immediately
+[enrollNameInput, enrollAgeInput, enrollWeightInput].forEach(inp => {
+  inp.addEventListener("keydown", e => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      enrollConfirm.click();
+    }
+  });
+});
+
+async function enrollNewStudent(name, descriptor, age, weightKg, photo) {
+  const result = await window.DeltaDB.enrollStudent(name, descriptor, age, weightKg, photo);
   if (!result) return;
   /* Add to face monitor for instant recognition without reload. */
-  faceMonitor.addKnownFace(result.id, name, descriptor);
+  faceMonitor.addKnownFace(result.id, name, descriptor, age, weightKg, photo || result.photo);
+  /* Unfreeze face monitor and link current student. */
+  faceMonitor.resolveUnknown(result);
   /* Switch to this student immediately. */
-  await switchStudent(result);
+  await switchStudent({ ...result, photo: photo || result.photo });
 }
 
 /* Switch the whole dashboard context to a student. */
 async function switchStudent(student) {
-  currentStudent = { id: student.id, name: student.name, age: student.age, weightKg: student.weight_kg || student.weightKg };
+  currentStudent = {
+    id: student.id ?? student.studentId,
+    name: student.name,
+    age: student.age,
+    weightKg: student.weight_kg ?? student.weightKg,
+    photo: student.photo || null,
+  };
   source.setPresence(true);                 /* show readings */
-  source.setStudent(currentStudent);        /* pass age/weight to data source */
+  source.setStudent(currentStudent);        /* pass age/weight/id to data source */
   window.DeltaDB.setActiveStudent(currentStudent);
+  renderPatient(currentStudent);
+  hideGuidance();
+  setAvatarUI({ live: true, scanning: false, detected: true, matched: true });
+
   endCurrentSession();
   dbSessionId = window.DeltaDB.startSession(currentStudent);
   dbPushSample();
@@ -417,10 +507,6 @@ function endCurrentSession() {
 }
 
 /* ── Debug status overlay (top-right) ── */
-// const statusBox = document.createElement("div");
-// statusBox.id = "debugStatus";
-// statusBox.style.cssText = "position:fixed;top:10px;right:10px;z-index:9999;background:#001018;border:1px solid var(--cyan);color:var(--cyan);padding:6px 10px;border-radius:6px;font-family:mono;font-size:11px;pointer-events:none;";
-// document.body.appendChild(statusBox);
 function setDebugStatus(msg) { /* disabled */ }
 
 /* ── Avatar camera + face recognition ── */
@@ -434,7 +520,6 @@ function setAvatarUI({ live, scanning, detected, matched }) {
   avatarBox.classList.toggle("scanning", !!scanning);
   avatarBox.classList.toggle("detected", !!detected);
   avatarBox.classList.toggle("matched", !!matched);
-  setDebugStatus(`AVATAR live=${!!live} scan=${!!scanning} det=${!!detected} mat=${!!matched} | cam src=${!!camFeed.srcObject} ready=${camFeed.readyState} w=${camFeed.videoWidth}`);
 }
 
 /* ── Load enrolled students into face monitor ── */
@@ -457,49 +542,52 @@ const faceMonitor = window.FaceMonitor.create({
 
   onIdentified(student) {
     /* Known student recognized. */
-    if (currentStudent && currentStudent.id === student.id) return;
-    currentStudent = { id: student.id, name: student.name, age: student.age, weightKg: student.weight_kg || student.weightKg };
-    source.setPresence(true);
-    source.setStudent(currentStudent);        /* pass age/weight to data source */
-    window.DeltaDB.setActiveStudent(currentStudent);
-    setAvatarUI({ live: true, scanning: false, detected: true, matched: true });
-    setDebugStatus(`IDENTIFIED: ${student.name} (id=${student.id})`);
-    /* (Re)start DB session for this student. */
-    endCurrentSession();
-    dbSessionId = window.DeltaDB.startSession(currentStudent);
-    dbPushSample();
-    dbSampleTimer = setInterval(dbPushSample, 10000);
+    if (currentStudent && currentStudent.id === (student.id ?? student.studentId)) return;
+    console.log("[Main] Recognized student:", student.name);
+    switchStudent(student);
   },
 
-  onUnknown(descriptor) {
-    /* Unknown face → enrollment modal. */
+  onUnknown(enrollData) {
+    /* Unknown face → enrollment modal with snapshot. */
     setAvatarUI({ live: true, scanning: false, detected: true, matched: false });
-    setDebugStatus("UNKNOWN FACE - enrollment modal");
-    showEnrollModal(descriptor);
+    showEnrollModal(enrollData);
   },
 
   onNoFace() {
-    /* No face at all. */
-    if (!currentStudent) return;
+    /* No face at all -> reset to zero/standby. */
+    hideGuidance();
+    if (!currentStudent) {
+      renderPatient(null);
+      return;
+    }
     endCurrentSession();
     currentStudent = null;
     source.setStudent(null);
     window.DeltaDB.setActiveStudent(null);
+    renderPatient(null);
     setAvatarUI({ live: true, scanning: true, detected: false, matched: false });
-    setDebugStatus("NO FACE");
+  },
+
+  onUnclearFace(msg) {
+    if (!currentStudent) {
+      showGuidance(msg);
+    }
+  },
+
+  onClearFace() {
+    hideGuidance();
   },
 
   onStatus(st) {
     if (st.state === "RUNNING") {
       setAvatarUI({ live: true, scanning: !st.models, detected: false, matched: false });
-      setDebugStatus(`RUNNING models=${st.models} cam=${!!camFeed.srcObject} ready=${camFeed.readyState}`);
     } else if (st.state === "ERROR" || st.state === "OFF") {
       setAvatarUI({ live: false, scanning: false, detected: false, matched: false });
       endCurrentSession();
       currentStudent = null;
       source.setStudent(null);
       window.DeltaDB.setActiveStudent(null);
-      setDebugStatus(`ERROR: ${st.error || st.state}`);
+      renderPatient(null);
     }
   },
 });
@@ -509,5 +597,6 @@ bootstrapFaceMonitor();
 
 tickClock();
 runBootSequence(() => {
-  /* dashboard is already rendering beneath the overlay; nothing else needed */
+  /* initial render in clean standby */
+  renderPatient(null);
 });

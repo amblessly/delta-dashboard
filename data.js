@@ -227,25 +227,24 @@ function fmt(v, dec = 0) {
 
 /* - Simulated data source - */
 
-/* Default student profile (reference/demo values from the source document).
-   Replaced by recognized student data when available. */
+/* Default student placeholder when no user is detected */
 const DEFAULT_STUDENT = {
-  name: "Princess Ronday",
-  age: 18,
-  weightKg: 54.2,
+  name: "--",
+  age: "--",
+  weightKg: "--",
 };
 
 function createSimulatedDataSource() {
-  /* Baseline readings (reference/demo values from the source document).
+  /* Baseline readings (reference values).
      A new face-detection session always restarts from these values -
      each scan is a fresh measurement. */
   const BASELINES = {
     electrolytes: 72.0,
     hydration:    54.0,
-    stress:       81.0,
+    stress:       75.0,
     sodium:       138.0,
-    lactate:      2.8,
-    temperature:  37.4,
+    lactate:      2.4,
+    temperature:  37.1,
   };
   const PH_BASELINE = 6.1;
 
@@ -253,15 +252,16 @@ function createSimulatedDataSource() {
   const state = {
     electrolytes: { value: BASELINES.electrolytes, min: 58, max: 88, step: 0.9 },
     hydration:    { value: BASELINES.hydration,    min: 44, max: 70, step: 0.5 },
-    stress:       { value: BASELINES.stress,       min: 62, max: 92, step: 0.8 },
+    stress:       { value: BASELINES.stress,       min: 52, max: 92, step: 0.8 },
     sodium:       { value: BASELINES.sodium,       min: 133, max: 144, step: 0.7 },
-    lactate:      { value: BASELINES.lactate,      min: 1.6, max: 3.6, step: 0.06 },
-    temperature:  { value: BASELINES.temperature,  min: 36.7, max: 37.9, step: 0.03 },
+    lactate:      { value: BASELINES.lactate,      min: 1.4, max: 3.6, step: 0.06 },
+    temperature:  { value: BASELINES.temperature,  min: 36.6, max: 37.9, step: 0.03 },
   };
 
   let timer = null;
   let paused = false;
   let phValue = PH_BASELINE;
+  let activeStudent = null;
 
   /* Biometric gate: values are only shown while a face is detected
      by the camera monitor (main.js wires FaceMonitor -> setPresence).
@@ -485,13 +485,20 @@ function createSimulatedDataSource() {
 
     /* Bind dashboard readings to a specific student identity
        ({id,name,age,weightKg}) coming from facial recognition. */
-    let activeStudent = null;
     setStudent(s) {
       activeStudent = s || null;
       presence = !!activeStudent;
       if (presence) {
-        for (const k of Object.keys(BASELINES)) state[k].value = BASELINES[k];
-        phValue = PH_BASELINE;
+        /* Derive personalized baseline from student characteristics */
+        const ageNum = Number(activeStudent.age) || 18;
+        const weightNum = Number(activeStudent.weightKg) || 55;
+        state.temperature.value = Number((36.8 + ((weightNum % 5) * 0.1)).toFixed(1));
+        state.hydration.value = Math.min(68, Math.max(45, Math.round(52 + (weightNum % 10))));
+        state.electrolytes.value = Math.min(85, Math.max(60, Math.round(70 + ((ageNum % 4) * 2))));
+        state.stress.value = Math.min(88, Math.max(55, Math.round(68 + ((weightNum % 7) * 3))));
+        state.sodium.value = Math.round(136 + ((ageNum + weightNum) % 6));
+        state.lactate.value = Number((1.8 + ((weightNum % 4) * 0.4)).toFixed(1));
+        phValue = Number((6.3 - ((state.stress.value - 50) / 100)).toFixed(1));
       }
       emit();
     },

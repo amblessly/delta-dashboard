@@ -25,10 +25,11 @@ async function main() {
   try {
     await client.connect();
     await client.query(sql);
-    console.log("[setup-db] Schema applied OK.");
+    await client.query("ALTER TABLE students ADD COLUMN IF NOT EXISTS photo TEXT");
+    console.log("[setup-db] Schema applied and photo column verified OK.");
 
-    const { rows } = await client.query("SELECT id, name, age, weight_kg FROM students ORDER BY id");
-    console.log("[setup-db] students:", rows);
+    const { rows } = await client.query("SELECT id, name, age, weight_kg, (photo IS NOT NULL) AS has_photo FROM students ORDER BY id");
+    console.log("[setup-db] current students in DB:", rows);
 
     const tables = await client.query(
       `SELECT table_name FROM information_schema.tables

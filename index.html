@@ -34,14 +34,14 @@
       </svg>
     </div>
     <div class="patient-row">
-      <span class="patient-name" data-role="patient-name">Princess Ronday</span>
+      <span class="patient-name" data-role="patient-name">--</span>
       <div class="p-stat">
         <span class="p-stat-key mono">AGE</span>
-        <span class="p-stat-val mono"><b data-role="patient-age">18</b> yrs</span>
+        <span class="p-stat-val mono"><b data-role="patient-age">--</b> yrs</span>
       </div>
       <div class="p-stat">
         <span class="p-stat-key mono">WEIGHT</span>
-        <span class="p-stat-val mono"><b data-role="patient-weight">54.2</b> kg</span>
+        <span class="p-stat-val mono"><b data-role="patient-weight">--</b> kg</span>
       </div>
     </div>
   </section>
@@ -51,7 +51,7 @@
     <article class="card metric-card tap" id="card-electrolytes" data-metric="electrolytes">
       <div class="metric-top">
         <span class="metric-label mono">ELECTROLYTES</span>
-        <span class="status-pill good" data-role="status">GOOD</span>
+        <span class="status-pill good" data-role="status">STANDBY</span>
       </div>
       <div class="metric-value-row">
         <span class="metric-value" data-role="value">--</span>
@@ -63,7 +63,7 @@
     <article class="card metric-card tap" id="card-hydration" data-metric="hydration">
       <div class="metric-top">
         <span class="metric-label mono">HYDRATION</span>
-        <span class="status-pill low" data-role="status">LOW</span>
+        <span class="status-pill low" data-role="status">STANDBY</span>
       </div>
       <div class="metric-value-row">
         <span class="metric-value" data-role="value">--</span>
@@ -75,7 +75,7 @@
     <article class="card metric-card tap" id="card-stress" data-metric="stress">
       <div class="metric-top">
         <span class="metric-label mono">STRESS</span>
-        <span class="status-pill high" data-role="status">HIGH</span>
+        <span class="status-pill high" data-role="status">STANDBY</span>
       </div>
       <div class="metric-value-row">
         <span class="metric-value" data-role="value">--</span>
@@ -95,7 +95,7 @@
         <article class="bd-item tap" id="card-sodium" data-metric="sodium">
           <div class="metric-top">
             <span class="metric-label mono">SODIUM NA<sup>+</sup></span>
-            <span class="status-pill good" data-role="status">NORMAL</span>
+            <span class="status-pill good" data-role="status">STANDBY</span>
           </div>
           <div class="metric-value-row tight">
             <span class="metric-value sm" data-role="value">--</span>
@@ -107,7 +107,7 @@
         <article class="bd-item tap" id="card-lactate" data-metric="lactate">
           <div class="metric-top">
             <span class="metric-label mono">LACTATE</span>
-            <span class="status-pill elevated" data-role="status">ELEVATED</span>
+            <span class="status-pill elevated" data-role="status">STANDBY</span>
           </div>
           <div class="metric-value-row tight">
             <span class="metric-value sm" data-role="value">--</span>
@@ -124,7 +124,7 @@
     <article class="card metric-card compact tap" id="card-stress2" data-metric="stress">
         <div class="metric-top">
           <span class="metric-label mono"><svg class="mini-ic purple" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M12 5v13"/></svg>STRESS</span>
-          <span class="status-pill high" data-role="status">HIGH</span>
+          <span class="status-pill high" data-role="status">STANDBY</span>
         </div>
         <div class="metric-value-row tight">
           <span class="metric-value sm" data-role="value">--</span>
@@ -136,7 +136,7 @@
       <article class="card metric-card compact tap" id="card-temp" data-metric="temperature">
         <div class="metric-top">
           <span class="metric-label mono"><svg class="mini-ic amber" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4v10.5a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/><path d="M12 9v6"/></svg>TEMPERATURE</span>
-          <span class="status-pill slight" data-role="status">SLIGHT</span>
+          <span class="status-pill slight" data-role="status">STANDBY</span>
         </div>
         <div class="metric-value-row tight">
           <span class="metric-value sm" data-role="value">--</span>
@@ -157,20 +157,32 @@
     </div>
   </section>
 
+  <!-- ------ CAMERA GUIDANCE TOAST ------ -->
+  <div class="guidance-toast" id="guidanceToast" style="display:none;" role="alert">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;flex:none;color:var(--amber);">
+      <path d="M12 9v4"/><path d="M12 17h.01"/><circle cx="12" cy="12" r="10"/>
+    </svg>
+    <span id="guidanceText">Please face the camera directly</span>
+  </div>
+
   <!-- ------ ENROLLMENT MODAL (hidden by default) ------ -->
   <div class="modal" id="enrollModal" role="dialog" aria-modal="true" aria-hidden="true" style="display:none">
     <div class="modal-backdrop"></div>
     <div class="modal-box">
       <div class="modal-header mono">NEW STUDENT DETECTED</div>
       <div class="modal-body">
-        <p>Face recognized as <b id="enrollNamePreview">unknown</b>.</p>
-        <p>Enter student details to enroll:</p>
-        <input type="text" id="enrollNameInput" placeholder="e.g., Juan Dela Cruz" autocomplete="off" spellcheck="false">
-        <input type="number" id="enrollAgeInput" placeholder="Age (years)" min="1" max="120" autocomplete="off" style="margin-top:8px;">
-        <input type="number" id="enrollWeightInput" placeholder="Weight (kg)" min="1" max="300" step="0.1" autocomplete="off" style="margin-top:8px;">
+        <div style="display:flex; justify-content:center; margin-bottom:12px;">
+          <img id="enrollPhotoPreview" src="" alt="Captured Face" style="width:80px; height:80px; border-radius:50%; object-fit:cover; border:2px solid var(--cyan); box-shadow:0 0 14px rgba(34,211,238,0.5); display:none;">
+        </div>
+        <p style="text-align:center;">Face captured. Enter name to save:</p>
+        <input type="text" id="enrollNameInput" placeholder="e.g., Student 1 (Juan Dela Cruz)" autocomplete="off" spellcheck="false">
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top:8px;">
+          <input type="number" id="enrollAgeInput" placeholder="Age (years)" min="1" max="120" autocomplete="off" style="margin-top:0;">
+          <input type="number" id="enrollWeightInput" placeholder="Weight (kg)" min="1" max="300" step="0.1" autocomplete="off" style="margin-top:0;">
+        </div>
         <div class="modal-actions">
           <button class="btn-cancel" id="enrollCancel">Cancel</button>
-          <button class="btn-primary" id="enrollConfirm">Enroll</button>
+          <button class="btn-primary" id="enrollConfirm">Save Student Data</button>
         </div>
       </div>
     </div>

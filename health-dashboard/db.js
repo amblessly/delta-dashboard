@@ -160,7 +160,7 @@ window.DeltaDB = (function () {
     }
   }
 
-  async function enrollStudent(name, embedding, age, weightKg) {
+  async function enrollStudent(name, embedding, age, weightKg, photo) {
     const payload = { name, embedding, age, weightKg };
     try {
       const r = await fetch("/api/students/enroll", {
@@ -171,9 +171,9 @@ window.DeltaDB = (function () {
       if (!r.ok) throw new Error("HTTP " + r.status);
       const saved = await r.json();
       const list = loadKnownStudents();
-      list.push({ ...saved, embeddings: [embedding] });
+      list.push({ ...saved, photo: photo || null, embeddings: [embedding] });
       saveKnownStudents(list);
-      return saved;
+      return { ...saved, photo: photo || null };
     } catch (e) {
       /* Offline enrollment: keep locally so recognition still works;
          server row will be missing until re-enrolled. */
@@ -182,6 +182,7 @@ window.DeltaDB = (function () {
         name,
         age: age || null,
         weight_kg: weightKg || null,
+        photo: photo || null,
         embeddings: [embedding],
         localOnly: true,
       };
@@ -190,6 +191,10 @@ window.DeltaDB = (function () {
       saveKnownStudents(list);
       return local;
     }
+  }
+
+  function clearStudents() {
+    try { localStorage.removeItem(LS_STUDENTS); } catch (e) {}
   }
 
   function listSessions() { return [...db.sessions].reverse(); }
@@ -203,8 +208,8 @@ window.DeltaDB = (function () {
   }
 
   return {
-    startSession, endSession, addSample,
-    fetchStudents, enrollStudent,
+    startSession, endSession, addSample, setActiveStudent,
+    fetchStudents, enrollStudent, clearStudents,
     listSessions, listSamples, clearAll
   };
 })();

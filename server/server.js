@@ -43,6 +43,7 @@ const MIME = {
 };
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
+pool.query("ALTER TABLE students ADD COLUMN IF NOT EXISTS photo TEXT").catch(e => console.warn("[DB] auto-migration warning:", e.message));
 
 /* ── Helpers ──────────────────────────────────────────────────── */
 
@@ -102,7 +103,7 @@ async function handleApi(req, res, url) {
   /* All students + their enrolled face embeddings (browser matcher bootstrap). */
   if (p === "/api/students" && req.method === "GET") {
     const students = await pool.query(
-      "SELECT id, name, age, weight_kg FROM students ORDER BY id");
+      "SELECT id, name, age, weight_kg, photo FROM students ORDER BY id");
     const embs = await pool.query(
       "SELECT student_id, embedding FROM face_embeddings ORDER BY id");
     const byStudent = {};
@@ -116,23 +117,24 @@ async function handleApi(req, res, url) {
   }
 
   /* Enroll: attach a face embedding to an existing student (by name)
-     or create the student first. Body: {name, embedding:[128 floats], age?, weightKg?} */
+     or create the student first. Body: {name, embedding:[128 floats], age?, weightKg?, photo?} */
   if (p === "/api/students/enroll" && req.method === "POST") {
     const b = await readBody(req);
     const name = typeof b.name === "string" ? b.name.trim().slice(0, 120) : "";
+    const photo = typeof b.photo === "string" && b.photo.startsWith("data:image/") ? b.photo : null;
     const emb = Array.isArray(b.embedding)
       ? b.embedding.slice(0, 128).map(v => Number(v))
       : [];
     if (!name || emb.length !== 128 || emb.some(v => !Number.isFinite(v))) {
       return sendJSON(res, 400, { error: "name and 128-float embedding required" });
     }
-    let student = await pool.query("SELECT id, name, age, weight_kg FROM students WHERE lower(name) = lower($1)", [name]);
+    let student = await pool.query("SELECT id, name, age, weight_kg, photo FROM students WHERE lower(name) = lower($1)", [name]);
     if (student.rowCount === 0) {
       student = await pool.query(
-        "INSERT INTO students (name, age, weight_kg) VALUES ($1, $2, $3) RETURNING id, name, age, weight_kg",
-        [name, num(b.age), num(b.weightKg)]);
+        "INSERT INTO students (name, age, weight_kg, photo) VALUES ($1, $2, $3, $4) RETURNING id, name, age, weight_kg, photo",
+        [name, num(b.age), num(b.weightKg), photo]);
     } else {
-      /* Update age/weight if provided */
+      /* Update age/weight/photo if provided */
       const updates = [];
       const params = [name];
       if (num(b.age) != null) {
@@ -143,12 +145,16 @@ async function handleApi(req, res, url) {
         updates.push("weight_kg = $" + (params.length + 1));
         params.push(num(b.weightKg));
       }
+      if (photo) {
+        updates.push("photo = $" + (params.length + 1));
+        params.push(photo);
+      }
       if (updates.length > 0) {
         await pool.query(
           "UPDATE students SET " + updates.join(", ") + " WHERE lower(name) = lower($1)",
           params
         );
-        student = await pool.query("SELECT id, name, age, weight_kg FROM students WHERE lower(name) = lower($1)", [name]);
+        student = await pool.query("SELECT id, name, age, weight_kg, photo FROM students WHERE lower(name) = lower($1)", [name]);
       }
     }
     const sid = student.rows[0].id;

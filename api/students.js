@@ -4,7 +4,7 @@ const { pool } = require("./_db.js");
 module.exports = async (req, res) => {
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
   try {
-    const students = await pool().query("SELECT id, name, age, weight_kg FROM students ORDER BY id");
+    const students = await pool().query("SELECT id, name, age, weight_kg, photo FROM students ORDER BY id");
     const embs = await pool().query("SELECT student_id, embedding FROM face_embeddings ORDER BY id");
     const byStudent = {};
     for (const e of embs.rows) {
