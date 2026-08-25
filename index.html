@@ -26,7 +26,7 @@
   <div class="scanner-overlay" id="scannerOverlay">
     <div class="scanner-box">
       <div class="scanner-camera-wrap">
-        <video id="scannerCam" autoplay playsinline muted></video>
+        <video id="camFeed" autoplay playsinline muted></video>
         <div class="scanner-frame">
           <div class="sf-corner sf-tl"></div>
           <div class="sf-corner sf-tr"></div>
@@ -37,6 +37,7 @@
         <div class="scanner-status" id="scannerStatus">INITIALIZING CAMERA...</div>
       </div>
       <div class="scanner-hint mono" id="scannerHint">Position your face inside the frame</div>
+      <button class="btn-manual mono" id="manualAccessBtn" type="button">SKIP SCAN · OPEN DASHBOARD →</button>
     </div>
   </div>
 
@@ -82,26 +83,26 @@
 
   <!-- ──── VITAL SIGNS ──── -->
   <section class="vitals" aria-label="Vital signs">
-    <article class="card metric-card tap" id="card-electrolytes" data-metric="electrolytes">
+    <article class="card metric-card tap" id="card-heartrate" data-metric="heart_rate">
       <div class="metric-top">
-        <span class="metric-label mono">ELECTROLYTES</span>
+        <span class="metric-label mono">HEART RATE</span>
         <span class="status-pill good" data-role="status">STANDBY</span>
       </div>
       <div class="metric-value-row">
         <span class="metric-value" data-role="value">--</span>
-        <span class="metric-unit">%</span>
+        <span class="metric-unit">bpm</span>
       </div>
-      <div class="bar"><div class="bar-fill cyan" data-role="bar" style="width:0%"></div></div>
+      <div class="bar"><div class="bar-fill red" data-role="bar" style="width:0%"></div></div>
     </article>
 
-    <article class="card metric-card tap" id="card-hydration" data-metric="hydration">
+    <article class="card metric-card tap" id="card-hrv" data-metric="hrv">
       <div class="metric-top">
-        <span class="metric-label mono">HYDRATION</span>
+        <span class="metric-label mono">HRV</span>
         <span class="status-pill low" data-role="status">STANDBY</span>
       </div>
       <div class="metric-value-row">
         <span class="metric-value" data-role="value">--</span>
-        <span class="metric-unit">%</span>
+        <span class="metric-unit">ms</span>
       </div>
       <div class="bar"><div class="bar-fill teal" data-role="bar" style="width:0%"></div></div>
     </article>
@@ -119,33 +120,33 @@
     </article>
   </section>
 
-  <!-- ──── ELECTROLYTE BREAKDOWN ──── -->
-  <section class="breakdown-section" aria-label="Electrolyte breakdown">
+  <!-- ──── BIOMETRIC DETAIL ──── -->
+  <section class="breakdown-section" aria-label="Biometric detail">
     <div class="rec-card card">
       <div class="rec-head">
-        <span class="rec-head-title mono">ELECTROLYTE BREAKDOWN</span>
+        <span class="rec-head-title mono">BIOMETRIC DETAIL</span>
       </div>
       <div class="bd-list">
-        <article class="bd-item tap" id="card-sodium" data-metric="sodium">
+        <article class="bd-item tap" id="card-breathing" data-metric="breathing">
           <div class="metric-top">
-            <span class="metric-label mono">SODIUM NA<sup>+</sup></span>
+            <span class="metric-label mono">BREATHING RATE</span>
             <span class="status-pill good" data-role="status">STANDBY</span>
           </div>
           <div class="metric-value-row tight">
             <span class="metric-value sm" data-role="value">--</span>
-            <span class="metric-unit sm">mEq/L</span>
+            <span class="metric-unit sm">/min</span>
           </div>
           <div class="bar thin"><div class="bar-fill cyan" data-role="bar" style="width:0%"></div></div>
         </article>
 
-        <article class="bd-item tap" id="card-lactate" data-metric="lactate">
+        <article class="bd-item tap" id="card-signal" data-metric="signal_quality">
           <div class="metric-top">
-            <span class="metric-label mono">LACTATE</span>
+            <span class="metric-label mono">SIGNAL QUALITY</span>
             <span class="status-pill elevated" data-role="status">STANDBY</span>
           </div>
           <div class="metric-value-row tight">
             <span class="metric-value sm" data-role="value">--</span>
-            <span class="metric-unit sm">mmol/L</span>
+            <span class="metric-unit sm">%</span>
           </div>
           <div class="bar thin"><div class="bar-fill amber" data-role="bar" style="width:0%"></div></div>
         </article>
@@ -184,8 +185,12 @@
   <section class="recs-section" aria-label="Recommendations">
     <div class="rec-card card">
       <div class="rec-head">
-        <span class="rec-head-title mono"><svg class="rec-hb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12h3l2.5-6 4 13 2.5-7H22"/></svg>RECOMMENDATIONS</span>
-        <span class="rec-head-tag mono"><i class="ai-dot" aria-hidden="true"></i>AI LIVE</span>
+        <span class="rec-head-title mono"><svg class="rec-hb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12h3l2.5-6 4 13 2.5-7H22"/></svg>RPPG VITALS WAVEFORM</span>
+        <span class="rec-head-tag mono"><i class="ai-dot" aria-hidden="true"></i>LIVE</span>
+      </div>
+      <div class="rppg-visual">
+        <canvas id="rppgCanvas" width="600" height="100"></canvas>
+        <div class="rppg-heatmap" id="rppgHeatmap"></div>
       </div>
       <div class="rec-list" id="recList"></div>
     </div>
@@ -196,22 +201,12 @@
     <div class="modal-box card">
       <div class="modal-head">
         <span class="mono modal-title">NEW STUDENT DETECTED</span>
-        <span class="mono modal-sub">No matching registered face</span>
+        <span class="mono modal-sub">Enter your name to register</span>
       </div>
       <label class="modal-field">
         <span class="mono">NAME *</span>
         <input type="text" id="enrollNameInput" autocomplete="off" spellcheck="false" maxlength="120" placeholder="Juan Dela Cruz">
       </label>
-      <div class="modal-grid">
-        <label class="modal-field">
-          <span class="mono">DATE OF BIRTH</span>
-          <input type="date" id="enrollDobInput">
-        </label>
-        <label class="modal-field">
-          <span class="mono">WEIGHT (KG)</span>
-          <input type="number" id="enrollWeightInput" min="2" max="400" step="0.1" placeholder="--">
-        </label>
-      </div>
       <div class="mono modal-error" id="enrollError"></div>
       <div class="mono modal-hint">A sequential Student ID is assigned automatically when saved.</div>
       <div class="modal-actions">
@@ -238,6 +233,7 @@
 </div>
 <script src="face-api.min.js"></script>
 <script src="api-client.js"></script>
+<script src="rppg.js"></script>
 <script src="camera-monitor.js"></script>
 <script src="main.js"></script>
 </body>

@@ -17,15 +17,18 @@ const DEFAULT_MATCH_THRESHOLD = 0.6;
 /* Wide physiological bounds used to REJECT garbage readings.
    They do not judge health, they only validate type/range. */
 const METRIC_VALIDATORS = {
-  temperature:   { column: "temperature_c",    unit: "\u00B0C",   min: 25, max: 45 },
-  hydration:     { column: "hydration_pct",    unit: "%",         min: 0,  max: 100 },
-  stress:        { column: "stress_pct",       unit: "%",         min: 0,  max: 100 },
-  electrolytes:  { column: "electrolytes_pct", unit: "%",         min: 0,  max: 100 },
-  sodium:        { column: "sodium_meq_l",     unit: "mEq/L",     min: 80, max: 200 },
-  lactate:       { column: "lactate_mmol_l",   unit: "mmol/L",    min: 0,  max: 25 },
+  heart_rate:   { column: "heart_rate_bpm",    unit: "bpm",    min: 30,  max: 220 },
+  hrv:          { column: "hrv_ms",            unit: "ms",     min: 5,   max: 400 },
+  breathing:    { column: "breathing_rate",    unit: "/min",   min: 4,   max: 45 },
+  temperature:  { column: "temperature_c",     unit: "\u00B0C", min: 25, max: 45 },
+  hydration:    { column: "hydration_pct",     unit: "%",      min: 0,   max: 100 },
+  stress:       { column: "stress_pct",        unit: "%",      min: 0,   max: 100 },
+  electrolytes: { column: "electrolytes_pct",  unit: "%",      min: 0,   max: 100 },
+  sodium:       { column: "sodium_meq_l",      unit: "mEq/L",  min: 80,  max: 200 },
+  lactate:      { column: "lactate_mmol_l",    unit: "mmol/L", min: 0,   max: 25 },
 };
 
-const METRIC_ORDER = ["temperature", "hydration", "stress", "electrolytes", "sodium", "lactate"];
+const METRIC_ORDER = ["heart_rate", "hrv", "breathing", "stress", "temperature", "hydration", "electrolytes", "sodium", "lactate"];
 
 /* Freshness windows (ms) used to classify stored readings. */
 const FRESH_LIVE_MS = 2 * 60 * 1000;
@@ -133,6 +136,9 @@ async function ensureSchema(pool) {
     CREATE INDEX IF NOT EXISTS idx_measurements_recorded ON measurements(recorded_at DESC);
     CREATE INDEX IF NOT EXISTS idx_measurements_student ON measurements(student_id, recorded_at DESC);
     ALTER TABLE measurements ADD COLUMN IF NOT EXISTS source TEXT;
+    ALTER TABLE measurements ADD COLUMN IF NOT EXISTS heart_rate_bpm NUMERIC(6,1);
+    ALTER TABLE measurements ADD COLUMN IF NOT EXISTS hrv_ms NUMERIC(7,1);
+    ALTER TABLE measurements ADD COLUMN IF NOT EXISTS breathing_rate NUMERIC(5,1);
     UPDATE measurements SET source = 'unknown' WHERE source IS NULL;
     ALTER TABLE measurements ALTER COLUMN source SET DEFAULT 'unknown';
     ALTER TABLE measurements ALTER COLUMN source SET NOT NULL;
@@ -198,8 +204,18 @@ async function matchFace(pool, descriptor) {
 async function enrollStudent(pool, { name, descriptor, dateOfBirth, weightKg, photo }) {
   const cleanName = typeof name === "string" ? name.trim().slice(0, 120) : "";
   if (!cleanName) return { error: "name is required" };
-  if (!validDescriptor(descriptor)) {
-    return { error: "descriptor must be an array of 128 finite numbers" };
+  /* Descriptor is optional (manual registration without a face scan). */
+  let vec = null;
+  if (descriptor != null) {
+    if (!validDescriptor(descriptor)) {
+      return { error: "descriptor must be an array of 128 finite numbers" };
+    }
+    vec = descriptor.map(Number);
+    /* Duplicate-face guard: same face must resolve to the SAME student. */
+    const dup = await matchFace(pool, vec);
+    if (dup.matched) {
+      return { conflict: true, student: dup.student };
+    }
   }
   let dob = null;
   if (dateOfBirth != null && dateOfBirth !== "") {
@@ -220,14 +236,6 @@ async function enrollStudent(pool, { name, descriptor, dateOfBirth, weightKg, ph
     cleanPhoto = photo;
   }
 
-  const vec = descriptor.map(Number);
-
-  /* Duplicate-face guard: same face must resolve to the SAME student. */
-  const dup = await matchFace(pool, vec);
-  if (dup.matched) {
-    return { conflict: true, student: dup.student };
-  }
-
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -237,10 +245,12 @@ async function enrollStudent(pool, { name, descriptor, dateOfBirth, weightKg, ph
        RETURNING id, name, student_code, date_of_birth, age, weight_kg, created_at`,
       [cleanName, dob, weight, cleanPhoto]
     );
-    await client.query(
-      "INSERT INTO face_embeddings (student_id, embedding) VALUES ($1, $2)",
-      [ins.rows[0].id, vec]
-    );
+    if (vec) {
+      await client.query(
+        "INSERT INTO face_embeddings (student_id, embedding) VALUES ($1, $2)",
+        [ins.rows[0].id, vec]
+      );
+    }
     await client.query("COMMIT");
     return { student: publicStudent(ins.rows[0]) };
   } catch (e) {

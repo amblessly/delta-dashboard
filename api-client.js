@@ -49,6 +49,11 @@ window.ApiClient = (function () {
     });
   }
 
+  /* GET /api/students */
+  function listStudents() {
+    return request("/api/students", { timeout: 8000 });
+  }
+
   /* GET /api/students/:code */
   function getProfile(studentCode) {
     return request(`/api/students/${encodeURIComponent(studentCode)}`);
@@ -65,9 +70,14 @@ window.ApiClient = (function () {
     return request("/api/sessions", { method: "POST", body: { clientKey, studentCode } });
   }
 
+  /* POST /api/measurements — ingest sensor data. */
+  function postMeasurements(body) {
+    return request("/api/measurements", { method: "POST", body });
+  }
+
   function endSession(clientKey) {
     return request("/api/sessions/end", { method: "POST", body: { clientKey } });
   }
 
-  return { matchFace, enroll, getProfile, getHealth, startSession, endSession };
+  return { matchFace, enroll, listStudents, postMeasurements, getProfile, getHealth, startSession, endSession };
 })();

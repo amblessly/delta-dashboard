@@ -49,9 +49,22 @@ const MIME = {
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  min: 1,               /* keep one warm connection - avoids cold-connect timeouts */
   max: 5,
+  idleTimeoutMillis: 60000,
+  connectionTimeoutMillis: 15000,
   ssl: { rejectUnauthorized: false },
 });
+
+/* Neon drops idle connections periodically; without this handler an idle
+   client 'error' crashes the whole process (unhandled 'error' event). */
+pool.on("error", (err) => {
+  console.error("[db] pool client error (recovering):", err.message);
+});
+
+/* Demo-day resilience: log fatal errors instead of dying. */
+process.on("uncaughtException", (err) => console.error("[fatal] caught:", err.message));
+process.on("unhandledRejection", (err) => console.error("[rejection]:", (err && err.message) || err));
 
 /* Idempotent schema migration at boot. */
 lib.ensureSchema(pool)

@@ -37,12 +37,11 @@ const ICONS = {
 };
 
 const METRIC_CARDS = [
-  { key: "electrolytes", sel: "#card-electrolytes", decimals: 0 },
-  { key: "hydration",    sel: "#card-hydration",    decimals: 0 },
-  { key: "stress",       sel: "#card-stress",       decimals: 0 },
-  { key: "sodium",       sel: "#card-sodium",       decimals: 0 },
-  { key: "lactate",      sel: "#card-lactate",      decimals: 1 },
-  { key: "temperature",  sel: "#card-temp",         decimals: 1 },
+  { key: "heart_rate", sel: "#card-heartrate", decimals: 0 },
+  { key: "hrv",        sel: "#card-hrv",       decimals: 0 },
+  { key: "stress",     sel: "#card-stress",     decimals: 0 },
+  { key: "breathing",  sel: "#card-breathing",  decimals: 0 },
+  { key: "signal_quality", sel: "#card-signal", decimals: 0 },
 ];
 const STRESS2_SEL = "#card-stress2";
 
@@ -76,6 +75,12 @@ setInterval(tickClock, 1000);
 
 /* ── Status banner ────────────────────────────────────────────── */
 const statusBanner = document.getElementById("statusBanner");
+const scannerOverlay = document.getElementById("scannerOverlay");
+function setScannerOverlay(show) {
+  if (!scannerOverlay) return;
+  scannerOverlay.classList.add("active");       /* keep rendered: detection needs frames */
+  scannerOverlay.classList.toggle("hide", !show);
+}
 function setState(state, detail) {
   appState = state;
   if (!statusBanner) return;
@@ -90,6 +95,11 @@ function setState(state, detail) {
   const def = map[state] || { cls: "", text: "" };
   statusBanner.className = `status-banner ${def.cls}`;
   statusBanner.textContent = detail && state !== AppState.ERROR ? `${def.text} \u2014 ${detail}` : def.text;
+  /* Scanner selfie-view: visible in scan/enroll states, hidden on dashboard.
+     Exception: the transient "STARTING CAMERA..." error keeps it visible to
+     avoid a flash-hide-flash cycle during onboarding. */
+  const transientCam = state === AppState.ERROR && String(detail || "").includes("STARTING CAMERA");
+  setScannerOverlay(!((state === AppState.ACTIVE || state === AppState.ERROR) && !transientCam));
 }
 
 /* ── Debug bar ────────────────────────────────────────────────── */
@@ -233,10 +243,17 @@ function renderHealth(health) {
   for (const def of METRIC_CARDS) {
     const root = document.querySelector(def.sel);
     if (!root) continue;
-    renderCardState(root, health.metrics[def.key], def.decimals);
+    let metric = health.metrics[def.key];
+    /* signal_quality is computed client-side by rPPG, never stored in DB. */
+    if (def.key === "signal_quality") {
+      metric = signalQualityLocal != null
+        ? { value: signalQualityLocal, state: signalQualityLocal >= 50 ? "GOOD" : "LOW", unit: "%", source: "rppg" }
+        : { value: null, state: "NO_SIGNAL", unit: "%", source: "" };
+    }
+    renderCardState(root, metric, def.decimals);
     if (def.key === "stress") {
       const root2 = document.querySelector(STRESS2_SEL);
-      if (root2) renderCardState(root2, health.metrics[def.key], def.decimals);
+      if (root2) renderCardState(root2, metric, def.decimals);
     }
   }
 }
@@ -265,24 +282,31 @@ function renderRecommendationsFromHealth(health) {
   /* Conservative notes based strictly on measured values. */
   const recs = [];
   const m = health.metrics;
-  if (m.temperature.value != null && m.temperature.state !== "NO_SIGNAL" && m.temperature.value >= 37.8) {
-    recs.push({ icon: "flask", theme: "amber", title: "Measured temperature elevated", desc: `Temperature reading of <b>${Number(m.temperature.value).toFixed(1)}\u00B0C</b> recorded (${m.temperature.source}). Consider rest and re-measurement.` });
+
+  if (m.heart_rate && m.heart_rate.value != null && m.heart_rate.state !== "NO_SIGNAL" && m.heart_rate.value >= 110) {
+    recs.push({ icon: "lungs", theme: "amber", title: "Heart rate is elevated", desc: `Heart rate of <b>${Math.round(m.heart_rate.value)} bpm</b> recorded (${m.heart_rate.source}). Consider rest and monitoring.` });
   }
-  if (m.hydration.value != null && m.hydration.state !== "NO_SIGNAL" && m.hydration.value < 60) {
-    recs.push({ icon: "droplet", theme: "amber", title: "Hydration reading is low", desc: `Hydration reading of <b>${Math.round(m.hydration.value)}%</b> recorded (${m.hydration.source}). Encourage water intake.` });
+  if (m.heart_rate && m.heart_rate.value != null && m.heart_rate.state !== "NO_SIGNAL" && m.heart_rate.value < 45) {
+    recs.push({ icon: "lungs", theme: "amber", title: "Heart rate is unusually low", desc: `Heart rate of <b>${Math.round(m.heart_rate.value)} bpm</b> recorded (${m.heart_rate.source}). Verify sensor contact.` });
   }
-  if (m.stress.value != null && m.stress.state !== "NO_SIGNAL" && m.stress.value >= 70) {
+  if (m.hrv && m.hrv.value != null && m.hrv.state !== "NO_SIGNAL" && m.hrv.value < 20) {
+    recs.push({ icon: "lungs", theme: "red", title: "HRV very low — possible stress", desc: `HRV of <b>${Math.round(m.hrv.value)} ms</b> recorded (${m.hrv.source}). Low HRV can indicate elevated stress.` });
+  }
+  if (m.stress && m.stress.value != null && m.stress.state !== "NO_SIGNAL" && m.stress.value >= 70) {
     recs.push({ icon: "lungs", theme: "red", title: "Stress reading is high", desc: `Stress reading of <b>${Math.round(m.stress.value)}%</b> recorded (${m.stress.source}). Reduce activity and rest.` });
   }
-  if (m.lactate.value != null && m.lactate.state !== "NO_SIGNAL" && m.lactate.value >= 4.0) {
-    recs.push({ icon: "flask", theme: "amber", title: "Lactate reading elevated", desc: `Lactate reading of <b>${Number(m.lactate.value).toFixed(1)} mmol/L</b> recorded (${m.lactate.source}).` });
+  if (m.breathing && m.breathing.value != null && m.breathing.state !== "NO_SIGNAL" && m.breathing.value >= 25) {
+    recs.push({ icon: "lungs", theme: "amber", title: "Respiration rate elevated", desc: `Breathing rate of <b>${Math.round(m.breathing.value)}/min</b> recorded (${m.breathing.source}). May indicate exertion or anxiety.` });
+  }
+  if (m.temperature && m.temperature.value != null && m.temperature.state !== "NO_SIGNAL" && m.temperature.value >= 37.8) {
+    recs.push({ icon: "flask", theme: "amber", title: "Temperature elevated", desc: `Temperature reading of <b>${Number(m.temperature.value).toFixed(1)}\u00B0C</b> recorded (${m.temperature.source}). Consider rest and re-measurement.` });
   }
   if (recs.length === 0) {
     const item = document.createElement("div");
     item.className = "rec-item theme-green";
     item.innerHTML = `<div class="rec-icon green">${ICONS.droplet}</div><div class="rec-body"><div class="rec-title"></div><div class="rec-desc"></div></div>`;
     item.querySelector(".rec-title").textContent = "READINGS WITHIN EXPECTED RANGES";
-    item.querySelector(".rec-desc").textContent = "Based on the latest real sensor readings.";
+    item.querySelector(".rec-desc").textContent = "Based on the latest rPPG vital signs.";
     recList.appendChild(item);
     return;
   }
@@ -311,7 +335,7 @@ async function beginMonitoringSession(student) {
   stopHealthPolling();
   sessionId = makeClientKey();
   try {
-    await window.ApiClient.startSession(sessionId, student.studentCode);
+    await withRetry(() => window.ApiClient.startSession(sessionId, student.studentCode), 3);
   } catch (e) {
     console.warn("[Main] session start failed:", e.message);
     sessionId = null;
@@ -355,19 +379,16 @@ async function refreshHealth() {
 
 const enrollModal = document.getElementById("enrollModal");
 const enrollNameInput = document.getElementById("enrollNameInput");
-const enrollDobInput = document.getElementById("enrollDobInput");
-const enrollWeightInput = document.getElementById("enrollWeightInput");
 const enrollConfirmBtn = document.getElementById("enrollConfirm");
 const enrollCancelBtn = document.getElementById("enrollCancel");
 const enrollError = document.getElementById("enrollError");
 
 let pendingEnrollment = null; /* { descriptor, photo } */
+let manualEnroll = false;     /* true when registering without a face scan */
 
 function showEnrollModal(capture) {
-  pendingEnrollment = capture;
+  pendingEnrollment = capture;   /* may be null in manual registration mode */
   enrollNameInput.value = "";
-  enrollDobInput.value = "";
-  enrollWeightInput.value = "";
   enrollError.textContent = "";
   enrollConfirmBtn.disabled = false;
   enrollConfirmBtn.textContent = "SAVE STUDENT";
@@ -386,14 +407,95 @@ function hideEnrollModal() {
 
 enrollCancelBtn.addEventListener("click", () => {
   hideEnrollModal();
-  faceMonitor.resolveUnknown(null);
-  setState(AppState.SCANNING);
+  if (manualEnroll) {
+    manualEnroll = false;
+    setState(AppState.NO_USER);
+  } else {
+    faceMonitor.resolveUnknown(null);
+    setState(AppState.SCANNING);
+  }
 });
 
-[enrollNameInput, enrollDobInput, enrollWeightInput].forEach(inp => {
-  inp.addEventListener("keydown", e => {
-    if (e.key === "Enter") { e.preventDefault(); enrollConfirmBtn.click(); }
+/* ── Manual access: skip the face scan, open the dashboard directly ── */
+const manualAccessBtn = document.getElementById("manualAccessBtn");
+let manualPanel = null;
+
+function closeManualPanel() {
+  if (manualPanel) { manualPanel.remove(); manualPanel = null; }
+}
+
+async function withRetry(fn, attempts) {
+  let lastErr;
+  for (let i = 0; i < (attempts || 3); i++) {
+    try { return await fn(); } catch (e) {
+      lastErr = e;
+      if (e.status && e.status < 500) throw e;   /* client errors: no retry */
+      await new Promise(r => setTimeout(r, 1200));
+    }
+  }
+  throw lastErr;
+}
+
+manualAccessBtn.addEventListener("click", async () => {
+  try {
+    const students = await withRetry(() => window.ApiClient.listStudents(), 4);
+    openManualPanel(Array.isArray(students) ? students : []);
+  } catch (e) {
+    showGuidance("Cannot reach server - cannot list students.", true);
+  }
+});
+
+function openManualPanel(students) {
+  closeManualPanel();
+  manualPanel = document.createElement("div");
+  manualPanel.className = "manual-panel";
+  const h = document.createElement("h3");
+  h.textContent = "MANUAL ACCESS";
+  manualPanel.appendChild(h);
+
+  if (students.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "manual-empty mono";
+    empty.textContent = "No registered students yet.";
+    manualPanel.appendChild(empty);
+  } else {
+    for (const s of students) {
+      const b = document.createElement("button");
+      b.className = "manual-item";
+      b.type = "button";
+      b.textContent = `ID ${s.studentCode} — ${s.name}`;
+      b.addEventListener("click", () => { closeManualPanel(); enterDashboard(s); });
+      manualPanel.appendChild(b);
+    }
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "manual-actions";
+
+  const reg = document.createElement("button");
+  reg.className = "btn-manual";
+  reg.textContent = "+ NEW STUDENT";
+  reg.addEventListener("click", () => {
+    closeManualPanel();
+    manualEnroll = true;
+    showEnrollModal(null);
   });
+
+  const cancel = document.createElement("button");
+  cancel.className = "btn-manual";
+  cancel.textContent = "CANCEL";
+  cancel.addEventListener("click", closeManualPanel);
+
+  actions.appendChild(reg);
+  actions.appendChild(cancel);
+  manualPanel.appendChild(actions);
+
+  const box = scannerOverlay.querySelector(".scanner-box");
+  (box || scannerOverlay).appendChild(manualPanel);
+}
+
+enrollNameInput.addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); enrollConfirmBtn.click(); }
 });
 
 enrollConfirmBtn.addEventListener("click", async () => {
@@ -403,40 +505,31 @@ enrollConfirmBtn.addEventListener("click", async () => {
     enrollNameInput.focus();
     return;
   }
-  if (!pendingEnrollment || !pendingEnrollment.descriptor) {
+  if (!manualEnroll && (!pendingEnrollment || !pendingEnrollment.descriptor)) {
     enrollError.textContent = "Face capture missing - please scan again.";
     return;
   }
-  const dob = enrollDobInput.value || null;             /* date_of_birth -> age computed server-side */
-  const weightRaw = enrollWeightInput.value.trim();
-  let weightKg = null;
-  if (weightRaw !== "") {
-    const v = Number(weightRaw);
-    if (!Number.isFinite(v) || v < 2 || v > 400) {
-      enrollError.textContent = "Weight must be a number between 2 and 400 kg.";
-      return;
-    }
-    weightKg = v;                                       /* validated MANUAL input - the real source */
-  }
-
+  /* Name-only registration: age/weight are not collected at enrollment. */
   enrollError.textContent = "";
   enrollConfirmBtn.disabled = true;
   enrollConfirmBtn.textContent = "SAVING...";
 
   try {
-    const student = await window.ApiClient.enroll({
-      name,
-      descriptor: pendingEnrollment.descriptor,
-      photo: pendingEnrollment.photo || undefined,
-      dateOfBirth: dob || undefined,
-      weightKg: weightKg === null ? undefined : weightKg,
-    });
+    const payload = { name };
+    if (!manualEnroll) {
+      payload.descriptor = pendingEnrollment.descriptor;
+      payload.photo = pendingEnrollment.photo || undefined;
+    }
+    const student = await window.ApiClient.enroll(payload);
+    const wasManual = manualEnroll;
+    manualEnroll = false;
     hideEnrollModal();
     setState(AppState.LOADING, `Student ID ${student.studentCode} assigned`);
     showGuidance(`Student registered - ID ${student.studentCode}`, true);
     setTimeout(hideGuidance, 4000);
     console.log("[Main] Enrolled:", student.name, "ID", student.studentCode);
-    faceMonitor.resolveUnknown(student);   /* triggers onIdentified -> dashboard */
+    if (wasManual) enterDashboard(student);
+    else faceMonitor.resolveUnknown(student);   /* triggers onIdentified -> dashboard */
   } catch (e) {
     if (e.status === 409 && e.data && e.data.student) {
       /* Face already registered -> resolve to the EXISTING student. */
@@ -466,16 +559,21 @@ function enterDashboard(student) {
   setAvatarUI({ live: true, scanning: false, detected: true, matched: true });
   setAllMetricsStandby();                 /* reset sensors until fresh data arrives */
   setState(AppState.LOADING);
+  /* Start rPPG engine: live vital signs from face video. */
+  window.RPPG.start(camFeedVideo);
   beginMonitoringSession(currentStudent).then(() => {
     if (currentStudent) {
       setState(AppState.ACTIVE);
       setDebug(`MONITORING: ${currentStudent.name} (ID ${currentStudent.studentCode})`, "green");
+      startVitalsPostLoop();
     }
   });
 }
 
 function exitDashboard() {
   stopMonitoringSession();
+  stopVitalsPostLoop();
+  window.RPPG.stop();
   currentStudent = null;
   lastHealth = null;
   renderIdentity(null);
@@ -488,6 +586,119 @@ function exitDashboard() {
   setState(AppState.NO_USER);
   setAvatarUI({ live: true, scanning: true, detected: false, matched: false });
   setDebug("READY - LOOK AT CAMERA", "cyan");
+}
+
+/* ══════════════════════════════════════════════════════════════
+   rPPG VITALS — POST computed readings to the server + draw waveform
+   ══════════════════════════════════════════════════════════════ */
+let vitalsPostTimer = null;
+let signalQualityLocal = null;   /* injected into renderHealth for frontend-only metric */
+const VITALS_POST_MS = 6000;
+
+function startVitalsPostLoop() {
+  stopVitalsPostLoop();
+  vitalsPostTimer = setInterval(postRppgVitals, VITALS_POST_MS);
+  drawWaveformLoop();   /* starts its own rAF loop */
+}
+function stopVitalsPostLoop() {
+  if (vitalsPostTimer) { clearInterval(vitalsPostTimer); vitalsPostTimer = null; }
+}
+
+async function postRppgVitals() {
+  if (!currentStudent || !sessionId) return;
+  const v = window.RPPG.getVitals();
+  if (!v || v.bpm == null) return;
+  const metrics = {
+    stress: v.stressPct != null ? Math.round(v.stressPct) : undefined,
+  };
+  if (v.bpm >= 30 && v.bpm <= 220) metrics.heart_rate = v.bpm;
+  if (v.rmssd != null && v.rmssd >= 5 && v.rmssd <= 400) metrics.hrv = Math.round(v.rmssd);
+  if (v.breathPerMin != null && v.breathPerMin >= 4 && v.breathPerMin <= 45) metrics.breathing = v.breathPerMin;
+  signalQualityLocal = Math.round(v.confidence * 100);
+  try {
+    await window.ApiClient.postMeasurements({
+      studentCode: currentStudent.studentCode,
+      sessionClientKey: sessionId,
+      source: "webcam_rppg",
+      metrics,
+    });
+  } catch (e) { /* non-critical */ }
+}
+
+/* ── Waveform canvas ── */
+const rppgCanvas = document.getElementById("rppgCanvas");
+const rppgCtx = rppgCanvas ? rppgCanvas.getContext("2d") : null;
+let rafId = null;
+function drawWaveformLoop() {
+  if (!rppgCtx) return;
+  function frame() {
+    if (!vitalsPostTimer) return;  /* stopped */
+    drawWaveform();
+    drawHeatmap();
+    rafId = requestAnimationFrame(frame);
+  }
+  rafId = requestAnimationFrame(frame);
+}
+
+function drawWaveform() {
+  if (!rppgCtx) return;
+  const W = rppgCanvas.width, H = rppgCanvas.height;
+  rppgCtx.clearRect(0, 0, W, H);
+  const sig = window.RPPG.getSignal();
+  if (sig.length < 10) {
+    rppgCtx.fillStyle = "rgba(34,211,238,0.25)";
+    rppgCtx.font = "11px 'Cascadia Mono', monospace";
+    rppgCtx.fillText("AWAITING RPPG SIGNAL\u2026", 12, H / 2 + 4);
+    return;
+  }
+  const tMin = sig[0].t, tMax = sig[sig.length - 1].t;
+  const dur = Math.max(tMax - tMin, 1);
+  const vals = sig.map(s => s.g);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const rng = Math.max(hi - lo, 0.1);
+  rppgCtx.beginPath();
+  rppgCtx.strokeStyle = "rgba(34,211,238,0.9)";
+  rppgCtx.lineWidth = 1.6;
+  rppgCtx.shadowColor = "#22d3ee";
+  rppgCtx.shadowBlur = 4;
+  for (let i = 0; i < sig.length; i++) {
+    const x = ((sig[i].t - tMin) / dur) * W;
+    const y = H - 6 - ((vals[i] - lo) / rng) * (H - 14);
+    i === 0 ? rppgCtx.moveTo(x, y) : rppgCtx.lineTo(x, y);
+  }
+  rppgCtx.stroke();
+  rppgCtx.shadowBlur = 0;
+}
+
+/* ── Heatmap strip: 10 cells showing confidence over recent windows ── */
+const hmEl = document.getElementById("rppgHeatmap");
+let hmCells = null;
+function drawHeatmap() {
+  if (!hmEl) return;
+  if (!hmCells) {
+    hmEl.innerHTML = "";
+    hmCells = [];
+    for (let i = 0; i < 10; i++) {
+      const c = document.createElement("div");
+      c.className = "hm-cell";
+      hmEl.appendChild(c);
+      hmCells.push(c);
+    }
+  }
+  const v = window.RPPG.getVitals();
+  const sig = window.RPPG.getSignal();
+  if (!v || v.bpm == null) {
+    hmCells.forEach(c => c.style.background = "rgba(34,211,238,0.08)");
+    return;
+  }
+  /* shift cells left, push current confidence colour */
+  for (let i = 0; i < hmCells.length - 1; i++) {
+    hmCells[i].style.background = hmCells[i + 1].style.background;
+  }
+  const conf = v.confidence;
+  const hue = conf > 0.6 ? 170 : conf > 0.3 ? 45 : 0;   /* green / amber / red */
+  hmCells[hmCells.length - 1].style.background =
+    `hsla(${hue}, 80%, 50%, ${0.25 + conf * 0.65})`;
 }
 
 const camFeedVideo = document.getElementById("camFeed");
@@ -521,6 +732,7 @@ const faceMonitor = window.FaceMonitor.create({
   onStatus(st) {
     if (st.state === "RUNNING") {
       if (st.models) {
+        setDebug(st.dbg || "SCANNING FOR FACES...", "cyan");
         hideGuidance();
         if (appState === AppState.ERROR) setState(AppState.NO_USER);
       } else {

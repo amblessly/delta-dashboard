@@ -17,19 +17,19 @@
 window.FaceMonitor = (function () {
 
   const INPUT_SIZE = 320;
-  const DETECT_INTERVAL_MS = 450;   /* recognition cadence */
-  const DETECTOR_SCORE_THRESHOLD = 0.35;
-  const MIN_QUALITY_SCORE = 0.5;    /* reject weak detections */
+  const DETECT_INTERVAL_MS = 1100;  /* recognition cadence (CPU-backend friendly) */
+  const DETECTOR_SCORE_THRESHOLD = 0.2;   /* catch weak faces; quality gate below filters */
+  const MIN_QUALITY_SCORE = 0.45;   /* reject weak detections */
+
   const MIN_FACE_WIDTH_PX = 80;     /* reject tiny/distant faces */
   const EDGE_MARGIN_PX = 12;        /* reject faces clipped by the frame edge */
   const MAX_FACES = 1;              /* exactly one person may be scanned */
 
-  const MATCH_STREAK = 2;           /* consecutive matches before IDENTIFIED */
-  const UNKNOWN_STREAK = 3;         /* consecutive non-matches before NEW STUDENT */
+  const MATCH_STREAK = 1;           /* decisions are single-shot (CPU-friendly) */
+  const UNKNOWN_STREAK = 1;         /* unknown -> enrollment modal immediately */
   const FACE_LOST_STREAK = 3;       /* consecutive empty frames before NO FACE */
 
-  const SMOOTH_DESCRIPTORS = 3;     /* averaged descriptors reduce jitter */
-
+  const SMOOTH_DESCRIPTORS = 1;     /* no averaging delay */
   function create({ videoEl, onIdentified, onUnknown, onNoFace, onGuidance, onStatus }) {
 
     let stream = null;
@@ -47,6 +47,7 @@ window.FaceMonitor = (function () {
     let enrollLock = false;        /* set while the enrollment modal is open */
     let inFlight = false;          /* one server match at a time */
     let recentDescriptors = [];
+    let tick = 0;                  /* diagnostics counter */
 
     const status = { state: "OFF", error: null, models: false };
 
@@ -58,6 +59,31 @@ window.FaceMonitor = (function () {
     function guidance(msg) { if (onGuidance) onGuidance(msg); }
 
     /* ── Models ─────────────────────────────────────────────────── */
+
+    /* Some GPU/driver combos stall WebGL inference forever (the detect
+       promise never settles). Probe once with a tiny input; if it does
+       not come back in time, switch TensorFlow to the CPU backend. */
+    async function ensureInferenceBackend() {
+      const probe = () => Promise.race([
+        faceapi.detectAllFaces(videoEl, new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.1 })),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("gpu-stall")), 6000)),
+      ]);
+      try {
+        await probe();
+        console.log("[FaceMonitor] Inference backend OK:", faceapi.tf ? faceapi.tf.getBackend() : "default");
+      } catch (e) {
+        const from = faceapi.tf ? faceapi.tf.getBackend() : "default";
+        console.warn("[FaceMonitor] Inference stalled on", from, "- switching to CPU");
+        try {
+          if (faceapi.tf) { faceapi.tf.setBackend("cpu"); await faceapi.tf.ready(); }
+          await probe();
+          console.log("[FaceMonitor] CPU backend working");
+        } catch (e2) {
+          console.warn("[FaceMonitor] Backend probe failed after fallback:", e2.message);
+        }
+      }
+    }
+
     async function loadModels() {
       if (typeof faceapi === "undefined") {
         setState({ state: "ERROR", error: "face-api.js library not loaded" });
@@ -81,6 +107,12 @@ window.FaceMonitor = (function () {
           modelsReady = true;
           setState({ models: true, error: null });
           console.log("[FaceMonitor] Models loaded:", base);
+          /* Force CPU: WebGL inference is unreliable across GPU/driver
+             combos (stalls or returns garbage). CPU is deterministic. */
+          try {
+            if (faceapi.tf) { faceapi.tf.setBackend("cpu"); await faceapi.tf.ready(); }
+          } catch (be) { console.warn("[FaceMonitor] CPU backend switch failed:", be.message); }
+          await ensureInferenceBackend();
           return true;
         } catch (e) {
           console.warn("[FaceMonitor] Model load failed:", base, e.message);
@@ -143,42 +175,77 @@ window.FaceMonitor = (function () {
     }
 
     /* ── Detection + recognition loop ───────────────────────────── */
+    function sampleBrightness() {
+      try {
+        const bc = document.createElement("canvas");
+        bc.width = 64; bc.height = 48;
+        const bx = bc.getContext("2d", { willReadFrequently: true });
+        bx.drawImage(videoEl, 0, 0, 64, 48);
+        const px = bx.getImageData(0, 0, 64, 48).data;
+        let s = 0;
+        for (let i = 0; i < px.length; i += 4) s += (px[i] + px[i + 1] + px[i + 2]) / 3;
+        return Math.round(s / (px.length / 4));
+      } catch (e) { return null; }
+    }
+
+    /* Downscaled frame: recognition nets cost ~4x less pixels to churn. */
+    let procCanvas = null;
+    function processSource() {
+      const w = Math.round((videoEl.videoWidth || 640) / 2);
+      const h = Math.round((videoEl.videoHeight || 480) / 2);
+      if (!procCanvas) procCanvas = document.createElement("canvas");
+      procCanvas.width = w; procCanvas.height = h;
+      procCanvas.getContext("2d").drawImage(videoEl, 0, 0, w, h);
+      return procCanvas;
+    }
+
     async function detectFrame() {
-      if (!stream || !videoEl.videoWidth || !modelsReady || enrollLock || inFlight) return;
+      tick++;
+      if (!stream || !videoEl.videoWidth) {
+        if (tick % 3 === 1) setState({ state: "RUNNING", models: true, dbg: `CAMERA FEED: ${!stream ? "no stream" : "no frames (w=0)"}` });
+        return;
+      }
+      if (!modelsReady || enrollLock || inFlight) return;
 
       try {
-        const opts = new faceapi.TinyFaceDetectorOptions({
+        const opts = () => new faceapi.TinyFaceDetectorOptions({
           inputSize: INPUT_SIZE,
           scoreThreshold: DETECTOR_SCORE_THRESHOLD,
         });
-        const detections = await faceapi.detectAllFaces(videoEl, opts)
-          .withFaceLandmarks(true)
-          .withFaceDescriptors();
 
-        if (!detections || detections.length === 0) {
+        /* Stage 1: cheap detector-only pass (skip heavy nets when no face). */
+        const quick = await faceapi.detectAllFaces(videoEl, opts());
+
+        /* Diagnostics + quality gate computed on cheap pass. */
+        const emit = (msg) => { if (tick % 3 === 0) setState({ state: "RUNNING", models: true, dbg: `FACE SCAN: ${msg} · cam:${sampleBrightness()}` }); };
+
+        if (!quick || quick.length === 0) {
+          emit("no face detected");
           handleEmpty();
           return;
         }
-
-        if (detections.length > MAX_FACES) {
+        if (quick.length > MAX_FACES) {
           /* Never scan while several people are visible. */
           resetCandidateState();
           guidance("Only one person should be visible during scanning.");
           return;
         }
 
-        const det = detections[0];
-        const score = det.detection.score || 0;
-        const box = det.detection.box;
+        const q0 = quick[0];
+        const qScore = q0.score || 0;
+        const qBoxW = Math.round(q0.box.width);
         const vw = videoEl.videoWidth;
-        const clipped = box.x < EDGE_MARGIN_PX || box.y < EDGE_MARGIN_PX ||
-          (box.x + box.width) > (vw - EDGE_MARGIN_PX);
-        const tooSmall = box.width < MIN_FACE_WIDTH_PX;
+        const clipped = q0.box.x < EDGE_MARGIN_PX || q0.box.y < EDGE_MARGIN_PX ||
+          (q0.box.x + q0.box.width) > (vw - EDGE_MARGIN_PX);
+        const tooSmall = q0.box.width < MIN_FACE_WIDTH_PX;
 
-        if (score < MIN_QUALITY_SCORE || tooSmall || clipped) {
+        if (qScore < MIN_QUALITY_SCORE || tooSmall || clipped) {
+          const why = clipped ? "too close to frame edge"
+            : `${tooSmall ? "too far/small" : "low clarity"} (score ${qScore.toFixed(2)}, w ${qBoxW}px)`;
+          emit(`face seen but ${why}`);
           handleEmpty();
           if (!lockedStudent) {
-            guidance(score < MIN_QUALITY_SCORE || tooSmall
+            guidance(tooSmall || qScore < MIN_QUALITY_SCORE
               ? "Please move closer and face the camera directly."
               : "Please center your face inside the frame.");
           }
@@ -187,6 +254,21 @@ window.FaceMonitor = (function () {
 
         lostCount = 0;
         guidance(null);
+
+        /* Feed face ROI to rPPG engine for live vital-sign computation. */
+        if (window.RPPG) window.RPPG.processFrame(q0.box);
+
+        emit(`${quick.length} face · score ${qScore.toFixed(2)} · w ${qBoxW}px · recognizing…`);
+
+        /* Stage 2: landmarks + 128-d descriptor, single face, downscaled. */
+        const det = await faceapi.detectSingleFace(processSource(), opts())
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+
+        if (!det) {
+          handleEmpty();
+          return;
+        }
 
         /* Smooth descriptor across a few frames. */
         recentDescriptors.push(Array.from(det.descriptor));
@@ -226,6 +308,7 @@ window.FaceMonitor = (function () {
             lockedStudent = result.student;
             matchCode = null; matchStreak = 0; unknownCount = 0; missStreak = 0;
             console.log("[FaceMonitor] IDENTIFIED:", lockedStudent.name, "ID", lockedStudent.studentCode);
+            setState({ state: "RUNNING", models: true, dbg: `RECOGNIZED: ${lockedStudent.name} · ID ${lockedStudent.studentCode}` });
             if (onIdentified) onIdentified({ ...lockedStudent });
           }
         } else {
@@ -241,6 +324,7 @@ window.FaceMonitor = (function () {
             unknownCount = 0;
             enrollLock = true;
             console.log("[FaceMonitor] UNKNOWN FACE -> enrollment flow");
+            setState({ state: "RUNNING", models: true, dbg: "UNKNOWN FACE → enrollment" });
             if (onUnknown) onUnknown({ descriptor, photo: captureSnapshot() });
           }
         }
