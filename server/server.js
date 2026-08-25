@@ -1,12 +1,16 @@
-/* Project DELTA dashboard server:
-   - serves the static dashboard (health-dashboard/) at http://localhost:8000
-   - JSON API backed by Neon PostgreSQL:
+/* Project DELTA local development server:
+   - serves the static dashboard from the repository root at http://localhost:8000
+   - exposes the SAME JSON API as the Vercel deployment (api/ folder):
        GET  /api/health
-       GET  /api/student
-       GET  /api/measurements?limit=50
-       POST /api/sessions            {clientKey, studentName}
+       GET  /api/students
+       GET  /api/students/:code
+       GET  /api/students/:code/health
+       POST /api/students/enroll
+       POST /api/face/match
+       POST /api/sessions            {clientKey, studentCode}
        POST /api/sessions/end        {clientKey}
-       POST /api/measurements        {sessionClientKey, studentName, metrics{...}}
+       GET  /api/measurements?limit=
+       POST /api/measurements        (sensor ingestion; validated + source + timestamp)
    Start: npm start   (reads server/.env)
 */
 "use strict";
@@ -15,6 +19,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { Pool } = require("pg");
+const lib = require("../api/_lib.js");
 
 /* ── .env ─────────────────────────────────────────────────────── */
 (function loadEnv() {
@@ -27,12 +32,12 @@ const { Pool } = require("pg");
   }
 })();
 if (!process.env.DATABASE_URL) {
-  console.error("DATABASE_URL missing - create server/.env");
+  console.error("DATABASE_URL missing - create server/.env (see server/.env.example)");
   process.exit(1);
 }
 
 const PORT = Number(process.env.PORT || 8000);
-const STATIC_ROOT = path.join(__dirname, "..");
+const STATIC_ROOT = __dirname ? path.join(__dirname, "..") : process.cwd();
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -42,8 +47,19 @@ const MIME = {
   ".md": "text/markdown; charset=utf-8",
 };
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
-pool.query("ALTER TABLE students ADD COLUMN IF NOT EXISTS photo TEXT").catch(e => console.warn("[DB] auto-migration warning:", e.message));
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 5,
+  ssl: { rejectUnauthorized: false },
+});
+
+/* Idempotent schema migration at boot. */
+lib.ensureSchema(pool)
+  .then(() => console.log("[server] schema verified/migrated OK"))
+  .catch(e => {
+    console.error("[server] schema migration FAILED:", e.message);
+    process.exit(1);
+  });
 
 /* ── Helpers ──────────────────────────────────────────────────── */
 
@@ -68,8 +84,6 @@ function readBody(req) {
   });
 }
 
-const num = v => (v == null || !Number.isFinite(Number(v)) ? null : Number(v));
-
 function serveStatic(req, res, urlPath) {
   let rel = decodeURIComponent(urlPath.split("?")[0]);
   if (rel === "/" || rel === "") rel = "/index.html";
@@ -84,138 +98,85 @@ function serveStatic(req, res, urlPath) {
   });
 }
 
-/* ── API handlers ─────────────────────────────────────────────── */
+/* ── API handlers (mirror api/ serverless functions) ──────────── */
 
 async function handleApi(req, res, url) {
   const p = url.pathname;
+  const method = req.method;
 
-  if (p === "/api/health" && req.method === "GET") {
+  if (p === "/api/health" && method === "GET") {
     await pool.query("SELECT 1");
     return sendJSON(res, 200, { ok: true, db: "connected" });
   }
 
-  if (p === "/api/student" && req.method === "GET") {
-    const { rows } = await pool.query(
-      "SELECT id, name, age, weight_kg FROM students ORDER BY id DESC LIMIT 1");
-    return sendJSON(res, 200, rows[0] || null);
+  if (p === "/api/students" && method === "GET") {
+    return sendJSON(res, 200, await lib.listStudents(pool));
   }
 
-  /* All students + their enrolled face embeddings (browser matcher bootstrap). */
-  if (p === "/api/students" && req.method === "GET") {
-    const students = await pool.query(
-      "SELECT id, name, age, weight_kg, photo FROM students ORDER BY id");
-    const embs = await pool.query(
-      "SELECT student_id, embedding FROM face_embeddings ORDER BY id");
-    const byStudent = {};
-    for (const e of embs.rows) {
-      (byStudent[e.student_id] = byStudent[e.student_id] || []).push(e.embedding);
-    }
-    return sendJSON(res, 200, students.rows.map(s => ({
-      ...s,
-      embeddings: byStudent[s.id] || [],
-    })));
-  }
-
-  /* Enroll: attach a face embedding to an existing student (by name)
-     or create the student first. Body: {name, embedding:[128 floats], age?, weightKg?, photo?} */
-  if (p === "/api/students/enroll" && req.method === "POST") {
+  /* NOTE: static segment "enroll" is matched before the dynamic :code route. */
+  if (p === "/api/students/enroll" && method === "POST") {
     const b = await readBody(req);
-    const name = typeof b.name === "string" ? b.name.trim().slice(0, 120) : "";
-    const photo = typeof b.photo === "string" && b.photo.startsWith("data:image/") ? b.photo : null;
-    const emb = Array.isArray(b.embedding)
-      ? b.embedding.slice(0, 128).map(v => Number(v))
-      : [];
-    if (!name || emb.length !== 128 || emb.some(v => !Number.isFinite(v))) {
-      return sendJSON(res, 400, { error: "name and 128-float embedding required" });
+    const result = await lib.enrollStudent(pool, b);
+    if (result.error) return sendJSON(res, 400, result);
+    if (result.conflict) {
+      return sendJSON(res, 409, { error: "This face is already registered.", student: result.student });
     }
-    let student = await pool.query("SELECT id, name, age, weight_kg, photo FROM students WHERE lower(name) = lower($1)", [name]);
-    if (student.rowCount === 0) {
-      student = await pool.query(
-        "INSERT INTO students (name, age, weight_kg, photo) VALUES ($1, $2, $3, $4) RETURNING id, name, age, weight_kg, photo",
-        [name, num(b.age), num(b.weightKg), photo]);
-    } else {
-      /* Update age/weight/photo if provided */
-      const updates = [];
-      const params = [name];
-      if (num(b.age) != null) {
-        updates.push("age = $" + (params.length + 1));
-        params.push(num(b.age));
-      }
-      if (num(b.weightKg) != null) {
-        updates.push("weight_kg = $" + (params.length + 1));
-        params.push(num(b.weightKg));
-      }
-      if (photo) {
-        updates.push("photo = $" + (params.length + 1));
-        params.push(photo);
-      }
-      if (updates.length > 0) {
-        await pool.query(
-          "UPDATE students SET " + updates.join(", ") + " WHERE lower(name) = lower($1)",
-          params
-        );
-        student = await pool.query("SELECT id, name, age, weight_kg, photo FROM students WHERE lower(name) = lower($1)", [name]);
-      }
-    }
-    const sid = student.rows[0].id;
-    await pool.query(
-      "INSERT INTO face_embeddings (student_id, embedding) VALUES ($1, $2)",
-      [sid, emb]);
-    return sendJSON(res, 201, { ...student.rows[0], enrolled: true });
+    return sendJSON(res, 201, result.student);
   }
 
-  if (p === "/api/sessions" && req.method === "POST") {
-    const body = await readBody(req);
-    const key = typeof body.clientKey === "string" ? body.clientKey.slice(0, 64) : null;
-    if (!key) return sendJSON(res, 400, { error: "clientKey required" });
-    const { rows } = await pool.query(
-      `INSERT INTO detection_sessions (client_key, student_id, student_name)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (client_key) DO UPDATE SET ended_at = NULL
-       RETURNING id, client_key, started_at`,
-      [key,
-       Number.isInteger(body.studentId) ? body.studentId : null,
-       body.studentName ? String(body.studentName).slice(0, 120) : null]
-    );
-    return sendJSON(res, 201, rows[0]);
-  }
-
-  if (p === "/api/sessions/end" && req.method === "POST") {
-    const body = await readBody(req);
-    if (!body.clientKey) return sendJSON(res, 400, { error: "clientKey required" });
-    const { rowCount } = await pool.query(
-      `UPDATE detection_sessions SET ended_at = now()
-       WHERE client_key = $1 AND ended_at IS NULL`,
-      [String(body.clientKey).slice(0, 64)]
-    );
-    return sendJSON(res, 200, { updated: rowCount });
-  }
-
-  if (p === "/api/measurements" && req.method === "POST") {
+  if (p === "/api/face/match" && method === "POST") {
     const b = await readBody(req);
-    const m = b.metrics || {};
-    const { rows } = await pool.query(
-      `INSERT INTO measurements
-         (session_client_key, student_id, student_name,
-          electrolytes_pct, hydration_pct, stress_pct,
-          sodium_meq_l, lactate_mmol_l, temperature_c)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-       RETURNING id, recorded_at`,
-      [
-        b.sessionClientKey ? String(b.sessionClientKey).slice(0, 64) : null,
-        Number.isInteger(b.studentId) ? b.studentId : null,
-        b.studentName ? String(b.studentName).slice(0, 120) : null,
-        num(m.electrolytes), num(m.hydration), num(m.stress),
-        num(m.sodium), num(m.lactate), num(m.temperature),
-      ]
-    );
-    return sendJSON(res, 201, rows[0]);
+    const result = await lib.matchFace(pool, b.descriptor);
+    if (result.error) return sendJSON(res, 400, result);
+    return sendJSON(res, 200, result);
   }
 
-  if (p === "/api/measurements" && req.method === "GET") {
+  const codeHealth = p.match(/^\/api\/students\/([^/]+)\/health$/);
+  if (codeHealth && method === "GET") {
+    const result = await lib.getHealthByCode(pool, codeHealth[1]);
+    if (result.error) return sendJSON(res, 400, result);
+    if (result.notFound) return sendJSON(res, 404, { error: "Student not found" });
+    return sendJSON(res, 200, result);
+  }
+
+  const codeRoute = p.match(/^\/api\/students\/([^/]+)$/);
+  if (codeRoute && method === "GET") {
+    const result = await lib.getStudentByCode(pool, codeRoute[1]);
+    if (result.error) return sendJSON(res, 400, result);
+    if (result.notFound) return sendJSON(res, 404, { error: "Student not found" });
+    return sendJSON(res, 200, result.student);
+  }
+
+  if (p === "/api/sessions" && method === "POST") {
+    const b = await readBody(req);
+    const result = await lib.startSession(pool, b);
+    if (result.error) return sendJSON(res, 400, result);
+    return sendJSON(res, 201, result);
+  }
+
+  if (p === "/api/sessions/end" && method === "POST") {
+    const b = await readBody(req);
+    const result = await lib.endSession(pool, b.clientKey);
+    if (result.error) return sendJSON(res, 400, result);
+    return sendJSON(res, 200, result);
+  }
+
+  if (p === "/api/measurements" && method === "POST") {
+    const b = await readBody(req);
+    const result = await lib.insertMeasurement(pool, b);
+    if (result.error) return sendJSON(res, 400, result);
+    return sendJSON(res, 201, result);
+  }
+
+  if (p === "/api/measurements" && method === "GET") {
     const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit")) || 50));
     const { rows } = await pool.query(
-      `SELECT * FROM measurements ORDER BY recorded_at DESC LIMIT $1`, [limit]);
+      `SELECT m.id, s.student_code AS "studentCode", m.source,
+              m.electrolytes_pct, m.hydration_pct, m.stress_pct,
+              m.sodium_meq_l, m.lactate_mmol_l, m.temperature_c,
+              m.recorded_at AS "recordedAt"
+       FROM measurements m LEFT JOIN students s ON s.id = m.student_id
+       ORDER BY m.recorded_at DESC LIMIT $1`, [limit]);
     return sendJSON(res, 200, rows);
   }
 
@@ -240,5 +201,6 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`[server] Project DELTA dashboard -> http://localhost:${PORT}`);
-  console.log("[server] API: /api/health /api/student /api/measurements /api/sessions");
+  console.log("[server] API: /api/health /api/students /api/students/:code /api/students/:code/health");
+  console.log("[server]     /api/students/enroll /api/face/match /api/sessions /api/measurements");
 });

@@ -1,15 +1,13 @@
 # Server dependencies & secrets
+node_modules/
 server/node_modules/
 server/.env
 api/node_modules/
-health-dashboard/server/node_modules/
-health-dashboard/server/.env
+.vercel/
 
 # Python
-human-detection/__pycache__/
-human-detection/*.pyc
-*.pyc
 __pycache__/
+*.pyc
 
 # Model weights
 *.pt
@@ -17,6 +15,7 @@ __pycache__/
 # Data files
 detections.csv
 detections.json
+detections/
 
 # OS junk
 Thumbs.db
@@ -25,3 +24,10 @@ Thumbs.db
 # Local database
 *.db
 *.sqlite
+
+# Local Raspberry Pi device folders (contain virtualenvs & weights)
+raspberry-pi-4b/
+raspberry-pi-5/
+
+# Env files (keep .env.example)
+.env

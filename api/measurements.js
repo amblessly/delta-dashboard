@@ -1,14 +1,27 @@
-/* GET /api/measurements?limit=N | POST /api/measurements */
+/* GET /api/measurements?limit=N | POST /api/measurements
+   POST is the ingestion endpoint for sensors / Raspberry Pi.
+   Body: {
+     studentCode,                       required — readings belong to one student
+     source: "temperature_sensor",      required — where this reading came from
+     sessionClientKey?,                 optional — active monitoring session
+     recordedAt?,                       optional ISO timestamp (default now)
+     metrics: { temperature?, hydration?, stress?, electrolytes?, sodium?, lactate? }
+   }
+   Invalid or out-of-range values are REJECTED (never coerced to 0). */
 const { pool } = require("./_db.js");
-
-const num = v => (v == null || !Number.isFinite(Number(v)) ? null : Number(v));
+const lib = require("./_lib.js");
 
 module.exports = async (req, res) => {
   if (req.method === "GET") {
     const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 50));
     try {
       const { rows } = await pool().query(
-        "SELECT * FROM measurements ORDER BY recorded_at DESC LIMIT $1",
+        `SELECT m.id, s.student_code AS "studentCode", m.source,
+                m.electrolytes_pct, m.hydration_pct, m.stress_pct,
+                m.sodium_meq_l, m.lactate_mmol_l, m.temperature_c,
+                m.recorded_at AS "recordedAt"
+         FROM measurements m LEFT JOIN students s ON s.id = m.student_id
+         ORDER BY m.recorded_at DESC LIMIT $1`,
         [limit]
       );
       return res.status(200).json(rows);
@@ -19,25 +32,10 @@ module.exports = async (req, res) => {
   }
 
   if (req.method === "POST") {
-    const b = req.body;
-    const m = b.metrics || {};
     try {
-      const { rows } = await pool().query(
-        `INSERT INTO measurements
-           (session_client_key, student_id, student_name,
-            electrolytes_pct, hydration_pct, stress_pct,
-            sodium_meq_l, lactate_mmol_l, temperature_c)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-         RETURNING id, recorded_at`,
-        [
-          b.sessionClientKey ? String(b.sessionClientKey).slice(0, 64) : null,
-          Number.isInteger(b.studentId) ? b.studentId : null,
-          b.studentName ? String(b.studentName).slice(0, 120) : null,
-          num(m.electrolytes), num(m.hydration), num(m.stress),
-          num(m.sodium), num(m.lactate), num(m.temperature),
-        ]
-      );
-      return res.status(201).json(rows[0]);
+      const result = await lib.insertMeasurement(pool(), req.body || {});
+      if (result.error) return res.status(400).json(result);
+      return res.status(201).json(result);
     } catch (e) {
       console.error("POST /api/measurements", e);
       return res.status(500).json({ error: e.message });

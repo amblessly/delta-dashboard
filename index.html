@@ -54,10 +54,13 @@
     </div>
   </header>
 
+  <!-- ──── STATUS BANNER ──── -->
+  <div class="status-banner" id="statusBanner" role="status">NO USER DETECTED · AWAITING FACE SCAN...</div>
+
   <!-- ──── PATIENT INFORMATION ──── -->
   <section class="patient card" aria-label="Patient information">
-    <div class="avatar" id="avatarBox" role="img" aria-label="User camera feed">
-      <video id="camFeed" autoplay playsinline muted></video>
+    <div class="avatar" id="avatarBox" role="img" aria-label="User face">
+      <img id="avatarFace" class="avatar-face" alt="" />
       <span class="scanline" id="scanLine"></span>
       <svg class="avatar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/>
@@ -65,6 +68,7 @@
     </div>
     <div class="patient-row">
       <span class="patient-name" data-role="patient-name">--</span>
+      <span class="patient-id mono dim" data-role="patient-id">ID --</span>
       <div class="p-stat">
         <span class="p-stat-key mono">AGE</span>
         <span class="p-stat-val mono"><b data-role="patient-age">--</b> yrs</span>
@@ -187,16 +191,35 @@
     </div>
   </section>
 
-  <!-- ──── STUDENT NAME INPUT (bottom) ──── -->
-  <section class="save-section" id="saveSection">
-    <div class="save-card card">
-      <div class="save-row">
-        <input type="text" id="studentNameInput" class="save-input mono" placeholder="Enter student name to save..." autocomplete="off" spellcheck="false">
-        <button class="save-btn mono" id="saveBtn">SAVE DATA</button>
+  <!-- ──── ENROLLMENT MODAL (NEW STUDENT) ──── -->
+  <div class="modal-overlay" id="enrollModal" aria-hidden="true" role="dialog" aria-label="New student registration">
+    <div class="modal-box card">
+      <div class="modal-head">
+        <span class="mono modal-title">NEW STUDENT DETECTED</span>
+        <span class="mono modal-sub">No matching registered face</span>
       </div>
-      <div class="save-hint mono" id="saveHint">Scan a face first, then enter name to save profile</div>
+      <label class="modal-field">
+        <span class="mono">NAME *</span>
+        <input type="text" id="enrollNameInput" autocomplete="off" spellcheck="false" maxlength="120" placeholder="Juan Dela Cruz">
+      </label>
+      <div class="modal-grid">
+        <label class="modal-field">
+          <span class="mono">DATE OF BIRTH</span>
+          <input type="date" id="enrollDobInput">
+        </label>
+        <label class="modal-field">
+          <span class="mono">WEIGHT (KG)</span>
+          <input type="number" id="enrollWeightInput" min="2" max="400" step="0.1" placeholder="--">
+        </label>
+      </div>
+      <div class="mono modal-error" id="enrollError"></div>
+      <div class="mono modal-hint">A sequential Student ID is assigned automatically when saved.</div>
+      <div class="modal-actions">
+        <button class="btn-ghost mono" id="enrollCancel">CANCEL</button>
+        <button class="save-btn mono" id="enrollConfirm">SAVE STUDENT</button>
+      </div>
     </div>
-  </section>
+  </div>
 
   <!-- ──── GUIDANCE TOAST ──── -->
   <div class="guidance-toast" id="guidanceToast" style="display:none;" role="alert">
@@ -214,10 +237,7 @@
 
 </div>
 <script src="face-api.min.js"></script>
-<script src="data.js"></script>
-<script src="db.js"></script>
-<script src="face-scan.js"></script>
-<script src="health-estimation.js"></script>
+<script src="api-client.js"></script>
 <script src="camera-monitor.js"></script>
 <script src="main.js"></script>
 </body>

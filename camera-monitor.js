@@ -1,18 +1,53 @@
 "use strict";
 
+/* camera-monitor.js — Camera + face recognition pipeline.
+
+   Pipeline: Camera → face-api.js TinyFaceDetector → Landmarks 68 →
+             128-d descriptor → POST /api/face/match (server-side,
+             threshold-gated) → Student ID or UNKNOWN.
+
+   Guarantees required by the Project DELTA spec:
+   - Models are loaded once, detection runs on an interval (never per frame)
+   - Registration/recognition only proceeds with ONE good-quality face
+   - A match below the configured threshold resolves to UNKNOWN — the
+     closest face is never assumed correct
+   - Identity decisions require stable consecutive frames (anti-flicker)
+*/
+
 window.FaceMonitor = (function () {
 
   const INPUT_SIZE = 320;
-  const MATCH_THRESHOLD = 0.55;
-  const DETECT_INTERVAL = 300;
+  const DETECT_INTERVAL_MS = 450;   /* recognition cadence */
+  const DETECTOR_SCORE_THRESHOLD = 0.35;
+  const MIN_QUALITY_SCORE = 0.5;    /* reject weak detections */
+  const MIN_FACE_WIDTH_PX = 80;     /* reject tiny/distant faces */
+  const EDGE_MARGIN_PX = 12;        /* reject faces clipped by the frame edge */
+  const MAX_FACES = 1;              /* exactly one person may be scanned */
 
-  function create({ videoEl, onFaceDetected, onNoFace, onStatus }) {
+  const MATCH_STREAK = 2;           /* consecutive matches before IDENTIFIED */
+  const UNKNOWN_STREAK = 3;         /* consecutive non-matches before NEW STUDENT */
+  const FACE_LOST_STREAK = 3;       /* consecutive empty frames before NO FACE */
+
+  const SMOOTH_DESCRIPTORS = 3;     /* averaged descriptors reduce jitter */
+
+  function create({ videoEl, onIdentified, onUnknown, onNoFace, onGuidance, onStatus }) {
 
     let stream = null;
     let timer = null;
     let modelsReady = false;
-    let facePresent = false;
-    let knownFaces = [];
+    let backendOk = true;
+
+    /* Runtime state */
+    let lockedStudent = null;      /* currently recognized student */
+    let missStreak = 0;
+    let matchCode = null;          /* candidate matched student code */
+    let matchStreak = 0;
+    let unknownCount = 0;
+    let lostCount = 0;
+    let enrollLock = false;        /* set while the enrollment modal is open */
+    let inFlight = false;          /* one server match at a time */
+    let recentDescriptors = [];
+
     const status = { state: "OFF", error: null, models: false };
 
     function setState(patch) {
@@ -20,41 +55,42 @@ window.FaceMonitor = (function () {
       if (onStatus) onStatus({ ...status });
     }
 
-    /* ── Load face-api.js models ── */
+    function guidance(msg) { if (onGuidance) onGuidance(msg); }
+
+    /* ── Models ─────────────────────────────────────────────────── */
     async function loadModels() {
       if (typeof faceapi === "undefined") {
-        setState({ error: "face-api.js not loaded" });
+        setState({ state: "ERROR", error: "face-api.js library not loaded" });
         return false;
       }
-      const paths = [
+      const bases = [
         (window.location.origin || "") + "/models",
         "/models",
         "./models",
       ];
-      for (const base of paths) {
+      for (const base of bases) {
         try {
-          console.log("[FaceMonitor] Loading models from:", base);
           await Promise.race([
             Promise.all([
               faceapi.nets.tinyFaceDetector.loadFromUri(base),
               faceapi.nets.faceLandmark68Net.loadFromUri(base),
               faceapi.nets.faceRecognitionNet.loadFromUri(base),
             ]),
-            new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000)),
+            new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 10000)),
           ]);
           modelsReady = true;
           setState({ models: true, error: null });
           console.log("[FaceMonitor] Models loaded:", base);
           return true;
         } catch (e) {
-          console.warn("[FaceMonitor] Failed:", base, e.message);
+          console.warn("[FaceMonitor] Model load failed:", base, e.message);
         }
       }
-      setState({ state: "ERROR", error: "Models failed to load." });
+      setState({ state: "ERROR", error: "Face recognition models failed to load." });
       return false;
     }
 
-    /* ── Start camera + detection ── */
+    /* ── Camera lifecycle ───────────────────────────────────────── */
     async function start() {
       if (stream) return true;
       if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) {
@@ -68,20 +104,26 @@ window.FaceMonitor = (function () {
           audio: false,
         });
       } catch (e) {
-        setState({ state: "ERROR", error: e.name === "NotAllowedError" ? "Camera permission denied" : "Camera unavailable" });
+        stream = null;
+        setState({
+          state: "ERROR",
+          error: e.name === "NotAllowedError"
+            ? "Camera permission denied. Allow camera access and reload."
+            : "Unable to access camera.",
+        });
         return false;
       }
       videoEl.srcObject = stream;
-      await new Promise(r => {
-        if (videoEl.readyState >= 1) return r();
-        videoEl.onloadedmetadata = () => r();
-        setTimeout(r, 4000);
+      await new Promise(resolve => {
+        if (videoEl.readyState >= 1) return resolve();
+        videoEl.onloadedmetadata = () => resolve();
+        setTimeout(resolve, 4000);
       });
       await videoEl.play().catch(() => {});
-      const loaded = await loadModels();
-      if (!loaded) return false;
+      const ok = await loadModels();
+      if (!ok) return false;
       setState({ state: "RUNNING", error: null });
-      timer = setInterval(detectFrame, DETECT_INTERVAL);
+      timer = setInterval(detectFrame, DETECT_INTERVAL_MS);
       return true;
     }
 
@@ -90,94 +132,190 @@ window.FaceMonitor = (function () {
       if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
       if (videoEl) videoEl.srcObject = null;
       modelsReady = false;
-      facePresent = false;
+      lockedStudent = null;
+      resetCandidateState();
       setState({ state: "OFF", error: null });
     }
 
-    /* ── Single frame detection ── */
+    function resetCandidateState() {
+      matchCode = null; matchStreak = 0; unknownCount = 0; lostCount = 0;
+      recentDescriptors = [];
+    }
+
+    /* ── Detection + recognition loop ───────────────────────────── */
     async function detectFrame() {
-      if (!stream || !videoEl.videoWidth || !modelsReady) return;
+      if (!stream || !videoEl.videoWidth || !modelsReady || enrollLock || inFlight) return;
+
       try {
-        const opts = new faceapi.TinyFaceDetectorOptions({ inputSize: INPUT_SIZE, scoreThreshold: 0.35 });
-        const result = await faceapi.detectSingleFace(videoEl, opts).withFaceLandmarks(true).withFaceDescriptor();
+        const opts = new faceapi.TinyFaceDetectorOptions({
+          inputSize: INPUT_SIZE,
+          scoreThreshold: DETECTOR_SCORE_THRESHOLD,
+        });
+        const detections = await faceapi.detectAllFaces(videoEl, opts)
+          .withFaceLandmarks(true)
+          .withFaceDescriptors();
 
-        if (!result) {
-          if (facePresent) {
-            facePresent = false;
-            console.log("[FaceMonitor] Face lost");
-            if (onNoFace) onNoFace();
+        if (!detections || detections.length === 0) {
+          handleEmpty();
+          return;
+        }
+
+        if (detections.length > MAX_FACES) {
+          /* Never scan while several people are visible. */
+          resetCandidateState();
+          guidance("Only one person should be visible during scanning.");
+          return;
+        }
+
+        const det = detections[0];
+        const score = det.detection.score || 0;
+        const box = det.detection.box;
+        const vw = videoEl.videoWidth;
+        const clipped = box.x < EDGE_MARGIN_PX || box.y < EDGE_MARGIN_PX ||
+          (box.x + box.width) > (vw - EDGE_MARGIN_PX);
+        const tooSmall = box.width < MIN_FACE_WIDTH_PX;
+
+        if (score < MIN_QUALITY_SCORE || tooSmall || clipped) {
+          handleEmpty();
+          if (!lockedStudent) {
+            guidance(score < MIN_QUALITY_SCORE || tooSmall
+              ? "Please move closer and face the camera directly."
+              : "Please center your face inside the frame.");
           }
           return;
         }
 
-        const score = result.detection.score || 0;
-        const box = result.detection.box;
-        const w = videoEl.videoWidth;
-        const cutOff = box && (box.x < 10 || box.y < 10 || (box.x + box.width) > (w - 10) || box.width < 50);
+        lostCount = 0;
+        guidance(null);
 
-        if (score < 0.4 || cutOff) {
-          if (facePresent) {
-            facePresent = false;
-            if (onNoFace) onNoFace();
-          }
-          return;
-        }
+        /* Smooth descriptor across a few frames. */
+        recentDescriptors.push(Array.from(det.descriptor));
+        if (recentDescriptors.length > SMOOTH_DESCRIPTORS) recentDescriptors.shift();
+        const avgDescriptor = averageDescriptors(recentDescriptors);
 
-        if (!facePresent) {
-          facePresent = true;
-          console.log("[FaceMonitor] Face detected, score:", score.toFixed(3));
-        }
-
-        const descriptor = Array.from(result.descriptor);
-        const match = findMatch(descriptor);
-        if (onFaceDetected) onFaceDetected(descriptor, match);
-
+        await matchAgainstRegistry(avgDescriptor);
       } catch (e) {
-        console.error("[FaceMonitor] Error:", e);
+        console.error("[FaceMonitor] frame error:", e.message);
       }
     }
 
-    /* ── Match against known faces ── */
-    function findMatch(descriptor) {
-      let best = null;
-      for (const kf of knownFaces) {
-        const dist = euclidean(descriptor, kf.descriptor);
-        if (!best || dist < best.dist) best = { dist, profile: kf };
+    function averageDescriptors(list) {
+      const len = list[0].length;
+      const out = new Array(len).fill(0);
+      for (const d of list) {
+        for (let i = 0; i < len; i++) out[i] += d[i];
       }
-      if (best && best.dist < MATCH_THRESHOLD) {
-        return { matched: true, profile: best.profile, distance: best.dist };
-      }
-      return { matched: false, distance: best ? best.dist : null };
+      return out.map(v => v / list.length);
     }
 
-    function euclidean(a, b) {
-      let sum = 0;
-      for (let i = 0; i < a.length; i++) {
-        const d = a[i] - b[i];
-        sum += d * d;
+    async function matchAgainstRegistry(descriptor) {
+      inFlight = true;
+      try {
+        const result = await window.ApiClient.matchFace(descriptor);
+
+        if (result.matched && result.student) {
+          unknownCount = 0;
+          const code = result.student.studentCode;
+          if (lockedStudent && lockedStudent.studentCode === code) {
+            missStreak = 0;
+            return; /* already active */
+          }
+          if (matchCode !== code) { matchCode = code; matchStreak = 0; }
+          matchStreak++;
+          if (matchStreak >= MATCH_STREAK) {
+            lockedStudent = result.student;
+            matchCode = null; matchStreak = 0; unknownCount = 0; missStreak = 0;
+            console.log("[FaceMonitor] IDENTIFIED:", lockedStudent.name, "ID", lockedStudent.studentCode);
+            if (onIdentified) onIdentified({ ...lockedStudent });
+          }
+        } else {
+          /* Threshold not met -> this is an UNKNOWN person. */
+          matchCode = null; matchStreak = 0;
+          if (lockedStudent) {
+            missStreak++;
+            if (missStreak >= FACE_LOST_STREAK) releaseCurrent();
+            return;
+          }
+          unknownCount++;
+          if (unknownCount >= UNKNOWN_STREAK && !enrollLock) {
+            unknownCount = 0;
+            enrollLock = true;
+            console.log("[FaceMonitor] UNKNOWN FACE -> enrollment flow");
+            if (onUnknown) onUnknown({ descriptor, photo: captureSnapshot() });
+          }
+        }
+      } catch (e) {
+        if (e.message === "BACKEND_UNAVAILABLE") {
+          if (backendOk) {
+            backendOk = false;
+            console.warn("[FaceMonitor] Backend unavailable");
+            setState({ error: "Backend unavailable - recognition paused." });
+            setTimeout(() => { backendOk = true; }, 5000);
+          }
+          guidance("Cannot reach the server. Recognition is paused.");
+        } else {
+          console.warn("[FaceMonitor] match failed:", e.message);
+        }
+      } finally {
+        inFlight = false;
       }
-      return Math.sqrt(sum);
     }
 
-    /* ── Known faces management ── */
-    function setKnownFaces(profiles) {
-      knownFaces = (profiles || []).filter(p => p && p.descriptor && p.descriptor.length === 128);
-      console.log("[FaceMonitor] Known faces:", knownFaces.length);
+    function handleEmpty() {
+      matchCode = null; matchStreak = 0; unknownCount = 0;
+      if (!lockedStudent) {
+        lostCount++;
+        if (lostCount >= FACE_LOST_STREAK) { guidance(null); }
+        return;
+      }
+      missStreak++;
+      if (missStreak >= FACE_LOST_STREAK) releaseCurrent();
     }
 
-    function addKnownFace(profile) {
-      if (profile && profile.descriptor && profile.descriptor.length === 128) {
-        knownFaces.push(profile);
+    function releaseCurrent() {
+      lockedStudent = null;
+      missStreak = 0;
+      resetCandidateState();
+      if (onNoFace) onNoFace();
+    }
+
+    /* ── Enrollment resolution ──────────────────────────────────── */
+    function resolveUnknown(studentOrNull) {
+      enrollLock = false;
+      resetCandidateState();
+      if (studentOrNull) {
+        lockedStudent = studentOrNull;
+        if (onIdentified) onIdentified({ ...studentOrNull });
+      }
+    }
+
+    /* Cropped mirrored photo used as enrollment reference image. */
+    function captureSnapshot() {
+      try {
+        const canvas = document.createElement("canvas");
+        const size = 180;
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        const minDim = Math.min(videoEl.videoWidth, videoEl.videoHeight);
+        const sx = (videoEl.videoWidth - minDim) / 2;
+        const sy = (videoEl.videoHeight - minDim) / 2;
+        ctx.translate(size, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(videoEl, sx, sy, minDim, minDim, 0, 0, size, size);
+        return canvas.toDataURL("image/jpeg", 0.85);
+      } catch (e) {
+        return null;
       }
     }
 
     return {
-      start, stop, detectFrame,
-      setKnownFaces, addKnownFace,
+      start, stop, detectFrame, resolveUnknown,
       get isRunning() { return !!timer; },
-      get faceDetected() { return facePresent; },
+      get student() { return lockedStudent ? { ...lockedStudent } : null; },
+      get status() { return { ...status }; },
     };
   }
 
-  return { create, MATCH_THRESHOLD };
+  return { create };
 })();

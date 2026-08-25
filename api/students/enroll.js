@@ -1,59 +1,29 @@
-/* POST /api/students/enroll - enroll a face embedding for a student */
+/* POST /api/students/enroll — register a new student with a face reference.
+   Body: { name, descriptor:[128 floats], dateOfBirth?, weightKg?, photo? }
+   The sequential Student ID is assigned by the database (starts at 101).
+   A face that is already registered returns 409 with the existing student. */
 const { pool } = require("./_db.js");
-
-const num = v => (v == null || !Number.isFinite(Number(v)) ? null : Number(v));
+const lib = require("../_lib.js");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-  const b = req.body;
-  const name = typeof b.name === "string" ? b.name.trim().slice(0, 120) : "";
-  const photo = typeof b.photo === "string" && b.photo.startsWith("data:image/") ? b.photo : null;
-  const emb = Array.isArray(b.embedding)
-    ? b.embedding.slice(0, 128).map(v => Number(v))
-    : [];
-  if (!name || emb.length !== 128 || emb.some(v => !Number.isFinite(v))) {
-    return res.status(400).json({ error: "name and 128-float embedding required" });
-  }
+  const b = req.body || {};
   try {
-    let student = await pool().query(
-      "SELECT id, name, age, weight_kg, photo FROM students WHERE lower(name) = lower($1)",
-      [name]
-    );
-    if (student.rowCount === 0) {
-      student = await pool().query(
-        "INSERT INTO students (name, age, weight_kg, photo) VALUES ($1, $2, $3, $4) RETURNING id, name, age, weight_kg, photo",
-        [name, num(b.age), num(b.weightKg), photo]
-      );
-    } else {
-      /* Update age/weight/photo if provided */
-      const updates = [];
-      const params = [name];
-      if (num(b.age) != null) {
-        updates.push("age = $" + (params.length + 1));
-        params.push(num(b.age));
-      }
-      if (num(b.weightKg) != null) {
-        updates.push("weight_kg = $" + (params.length + 1));
-        params.push(num(b.weightKg));
-      }
-      if (photo) {
-        updates.push("photo = $" + (params.length + 1));
-        params.push(photo);
-      }
-      if (updates.length > 0) {
-        await pool().query(
-          "UPDATE students SET " + updates.join(", ") + " WHERE lower(name) = lower($1)",
-          params
-        );
-        student = await pool().query("SELECT id, name, age, weight_kg, photo FROM students WHERE lower(name) = lower($1)", [name]);
-      }
+    const result = await lib.enrollStudent(pool(), {
+      name: b.name,
+      descriptor: b.descriptor,
+      dateOfBirth: b.dateOfBirth,
+      weightKg: b.weightKg,
+      photo: b.photo,
+    });
+    if (result.error) return res.status(400).json(result);
+    if (result.conflict) {
+      return res.status(409).json({
+        error: "This face is already registered.",
+        student: result.student,
+      });
     }
-    const sid = student.rows[0].id;
-    await pool().query(
-      "INSERT INTO face_embeddings (student_id, embedding) VALUES ($1, $2)",
-      [sid, emb]
-    );
-    res.status(201).json({ ...student.rows[0], enrolled: true });
+    res.status(201).json(result.student);
   } catch (e) {
     console.error("/api/students/enroll", e);
     res.status(500).json({ error: e.message });
