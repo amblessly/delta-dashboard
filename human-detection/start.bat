@@ -1,6 +1,0 @@
-@echo off
-cd /d "%~dp0"
-echo Installing requirements...
-pip install -r requirements.txt
-echo Starting Human Detection Service on port 8001...
-python detector.py

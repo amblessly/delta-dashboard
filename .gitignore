@@ -31,3 +31,4 @@ raspberry-pi-5/
 
 # Env files (keep .env.example)
 .env
+human-detection/
