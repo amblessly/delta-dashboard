@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<labwc_config>
+  <theme>
+    <font place="ActiveWindow"><name>Nunito Sans</name><size>16</size><weight>Light</weight><slant>Normal</slant></font>
+    <font place="InactiveWindow"><name>Nunito Sans</name><size>16</size><weight>Light</weight><slant>Normal</slant></font>
+    <name>PiXtrix_l</name>
+  </theme>
+</labwc_config>

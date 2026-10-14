@@ -1,0 +1,13 @@
+# Touch rotation for portrait mode - DEPRECATED
+#
+# libinput quirks file format (MatchUdevType) doesn't work on libinput 1.28.
+# Touch rotation is now handled via:
+#   1. udev rule: /etc/udev/rules.d/99-touch-rotate.rules
+#   2. hwdb entry: /etc/udev/hwdb.d/99-touch-rotate.hwdb
+#   3. Lightdm session-setup-script: /usr/bin/delta-touch-setup
+#
+# CRITICAL: labwc rc.xml must NOT contain a <touch> element - it interferes
+# with the udev calibration matrix. The calibration is applied at the
+# libinput level before labwc opens the device.
+#
+# See install-services.sh for deployment.

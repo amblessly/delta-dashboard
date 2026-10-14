@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Project DELTA - Student Health Dashboard</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- ──── BOOT OVERLAY ──── -->
+  <div class="boot-overlay" id="bootOverlay">
+    <div class="boot-box">
+      <svg class="pulse-line" viewBox="0 0 120 28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M0 14h30l6-11 8 22 7-15 5 4h20l5-7 6 7h33" pathLength="100"/>
+      </svg>
+      <div class="mono boot-title">PROJECT DELTA</div>
+      <div class="mono boot-sub">BIOMETRIC TERMINAL</div>
+      <div class="mono boot-status" id="bootStatus">INITIALIZING SYSTEM...</div>
+      <div class="boot-bar"><div class="boot-bar-fill" id="bootBar"></div></div>
+    </div>
+  </div>
+
+  <!-- ──── STUDENT SELECT PANEL ──── -->
+  <div class="scanner-overlay active" id="scannerOverlay">
+    <div class="scanner-box">
+      <div class="scanner-hint mono" id="scannerHint">SELECT OR REGISTER A STUDENT</div>
+      <div id="studentSelectPanel"></div>
+    </div>
+  </div>
+
+  <!-- ──── TOP HEADER ──── -->
+  <header class="header card">
+    <div class="header-left">
+      <div class="title-block">
+        <h1 class="title">Project DELTA<span class="title-sep">:</span> <span class="title-sub">Student Health Dashboard</span></h1>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="clock-block">
+        <div class="clock mono" id="clock">--:--:--</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ──── STATUS BANNER ──── -->
+  <div class="status-banner" id="statusBanner" role="status">SELECT A STUDENT TO BEGIN MONITORING</div>
+
+  <div class="scroll-area">
+
+  <!-- ──── PATIENT INFORMATION ──── -->
+  <section class="patient card" aria-label="Patient information">
+    <div class="patient-row">
+      <span class="patient-name" data-role="patient-name">--</span>
+      <span class="patient-id mono dim" data-role="patient-id">ID --</span>
+      <div class="p-stat">
+        <span class="p-stat-key mono">AGE</span>
+        <span class="p-stat-val mono"><b data-role="patient-age">--</b> yrs</span>
+      </div>
+      <div class="p-stat">
+        <span class="p-stat-key mono">WEIGHT</span>
+        <span class="p-stat-val mono"><b data-role="patient-weight">--</b> kg</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ──── VITAL SIGNS ──── -->
+  <section class="vitals" aria-label="Vital signs">
+    <article class="card metric-card tap" id="card-electrolytes" data-metric="electrolytes">
+      <div class="metric-top">
+        <span class="metric-label mono">ELECTROLYTE %</span>
+        <span class="status-pill good" data-role="status">STANDBY</span>
+      </div>
+      <div class="metric-value-row">
+        <span class="metric-value" data-role="value">--</span>
+        <span class="metric-unit">%</span>
+      </div>
+      <div class="bar"><div class="bar-fill teal" data-role="bar" style="width:0%"></div></div>
+    </article>
+
+    <article class="card metric-card tap" id="card-hydration" data-metric="hydration">
+      <div class="metric-top">
+        <span class="metric-label mono">HYDRATION %</span>
+        <span class="status-pill low" data-role="status">STANDBY</span>
+      </div>
+      <div class="metric-value-row">
+        <span class="metric-value" data-role="value">--</span>
+        <span class="metric-unit">%</span>
+      </div>
+      <div class="bar"><div class="bar-fill cyan" data-role="bar" style="width:0%"></div></div>
+      <div class="hydration-confidence mono" id="hydrationConfidence"></div>
+    </article>
+
+    <article class="card metric-card tap" id="card-stress" data-metric="stress">
+      <div class="metric-top">
+        <span class="metric-label mono">STRESS</span>
+        <span class="status-pill high" data-role="status">STANDBY</span>
+      </div>
+      <div class="metric-value-row">
+        <span class="metric-value" data-role="value">--</span>
+        <span class="metric-unit">%</span>
+      </div>
+      <div class="bar"><div class="bar-fill purple" data-role="bar" style="width:0%"></div></div>
+    </article>
+  </section>
+
+  <!-- ──── ELECTROLYTE BREAKDOWN ──── -->
+  <section class="breakdown-section" aria-label="Electrolyte breakdown">
+    <div class="rec-card card">
+      <div class="rec-head">
+        <span class="rec-head-title mono">ELECTROLYTE BREAKDOWN</span>
+      </div>
+      <div class="bd-list">
+        <article class="bd-item tap" id="card-sodium" data-metric="sodium">
+          <div class="metric-top">
+            <span class="metric-label mono">SODIUM Na+</span>
+            <span class="status-pill good" data-role="status">STANDBY</span>
+          </div>
+          <div class="metric-value-row tight">
+            <span class="metric-value sm" data-role="value">--</span>
+            <span class="metric-unit sm">mEq/L</span>
+          </div>
+          <div class="bar thin"><div class="bar-fill cyan" data-role="bar" style="width:0%"></div></div>
+        </article>
+
+        <article class="bd-item tap" id="card-lactate" data-metric="lactate">
+          <div class="metric-top">
+            <span class="metric-label mono">LACTATE %</span>
+            <span class="status-pill elevated" data-role="status">STANDBY</span>
+          </div>
+          <div class="metric-value-row tight">
+            <span class="metric-value sm" data-role="value">--</span>
+            <span class="metric-unit sm">mmol/L</span>
+          </div>
+          <div class="bar thin"><div class="bar-fill amber" data-role="bar" style="width:0%"></div></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ──── SECONDARY METRICS ──── -->
+  <section class="secondary" aria-label="Secondary health metrics">
+    <article class="card metric-card tap" id="card-temp" data-metric="temperature">
+      <div class="metric-top">
+        <span class="metric-label mono"><svg class="mini-ic amber" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4v10.5a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/><path d="M12 9v6"/></svg>TEMPERATURE</span>
+        <span class="status-pill slight" data-role="status">STANDBY</span>
+      </div>
+      <div class="metric-value-row">
+        <span class="metric-value" data-role="value" id="tempValue">--</span>
+        <span class="metric-unit">&deg;C</span>
+      </div>
+      <div class="bar"><div class="bar-fill amber" data-role="bar" style="width:0%"></div></div>
+      <div class="temp-detail mono" id="tempDetail">Awaiting sensor data</div>
+      <div class="temp-confidence mono" id="tempConfidence"></div>
+      <div class="thermal-visual">
+        <canvas id="thermalCanvas" width="320" height="240"></canvas>
+      </div>
+    </article>
+  </section>
+
+  <!-- ──── RECOMMENDATIONS ──── -->
+  <section class="recs-section" aria-label="Recommendations">
+    <div class="rec-card card">
+      <div class="rec-head">
+        <span class="rec-head-title mono">RECOMMENDATIONS</span>
+        <span class="rec-head-tag mono"><i class="ai-dot" aria-hidden="true"></i>LIVE</span>
+      </div>
+      <div class="rec-list" id="recList"></div>
+    </div>
+  </section>
+
+  </div><!-- /scroll-area -->
+
+  <!-- ──── START BUTTON ──── -->
+  <section class="start-section" id="startSection">
+    <button class="btn-start" id="startBtn" type="button">
+      <span class="btn-start-label">START MONITORING</span>
+      <span class="btn-start-timer" id="startTimer"></span>
+    </button>
+  </section>
+
+  <!-- ──── ENROLLMENT MODAL (NEW STUDENT) ──── -->
+  <div class="modal-overlay" id="enrollModal" aria-hidden="true" role="dialog" aria-label="New student registration">
+    <div class="modal-box card">
+      <div class="modal-head">
+        <span class="mono modal-title">NEW STUDENT</span>
+        <span class="mono modal-sub">Enter details to register</span>
+      </div>
+      <label class="modal-field">
+        <span class="mono">NAME *</span>
+        <input type="text" id="enrollNameInput" autocomplete="off" spellcheck="false" maxlength="120" placeholder="Juan Dela Cruz">
+      </label>
+      <label class="modal-field">
+        <span class="mono">AGE (yrs)</span>
+        <input type="text" id="enrollAgeInput" inputmode="numeric" autocomplete="off" placeholder="16" maxlength="3" pattern="\d{1,3}">
+      </label>
+      <label class="modal-field">
+        <span class="mono">WEIGHT (kg)</span>
+        <input type="text" id="enrollWeightInput" inputmode="decimal" autocomplete="off" placeholder="65" maxlength="6" pattern="\d{1,3}(\.\d)?">
+      </label>
+      <div class="mono modal-error" id="enrollError"></div>
+      <div class="mono modal-hint">A sequential Student ID is assigned automatically.</div>
+      <div class="modal-actions">
+        <button class="btn-ghost mono" id="enrollCancel">CANCEL</button>
+        <button class="save-btn mono" id="enrollConfirm">SAVE STUDENT</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ──── GUIDANCE TOAST ──── -->
+  <div class="guidance-toast" id="guidanceToast" style="display:none;" role="alert">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;flex:none;color:var(--amber);">
+      <path d="M12 9v4"/><path d="M12 17h.01"/><circle cx="12" cy="12" r="10"/>
+    </svg>
+    <span id="guidanceText"></span>
+  </div>
+
+  <!-- ──── DEBUG BAR ──── -->
+  <div class="debug-bar" id="debugBar">
+    <span class="debug-dot" id="debugDot"></span>
+    <span class="mono" id="debugText">INIT...</span>
+  </div>
+
+</div>
+<script src="api-client.js"></script>
+<script src="thermal-panel.js"></script>
+<script src="stress_estimator.js"></script>
+<script src="main.js"></script>
+</body>
+</html>

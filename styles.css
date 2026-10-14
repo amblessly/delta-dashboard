@@ -1,0 +1,1518 @@
+/* --------------------
+   Project DELTA - Student Health Dashboard
+   Portrait, mobile-app-style UI: a narrow centered container with
+   generous empty space on both sides when viewed on desktop.
+   Rounded font (Nunito) bundled locally for offline Pi use.
+   -------------------- */
+
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(fonts/nunito-latin.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(fonts/nunito-latin.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url(fonts/nunito-latin.woff2) format('woff2');
+}
+
+:root {
+  --bg:            #0b1120;
+  --card:          #111b2e;
+  --card-2:        #0f1829;
+  --border:        rgba(148, 163, 184, 0.14);
+  --border-soft:   rgba(148, 163, 184, 0.09);
+  --text:          #e6edf7;
+  --text-dim:      #8fa1bf;
+  --text-faint:    #5c6c88;
+
+  --cyan:          #22d3ee;
+  --teal:          #2dd4bf;
+  --green:         #34d399;
+  --amber:         #fbbf24;
+  --orange:        #fb923c;
+  --red:           #fb7185;
+  --purple:        #a78bfa;
+
+  --radius:        10px;
+  --radius-sm:     7px;
+  --gap:           12px;
+  --pad:           14px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+/* Text is selectable: Ctrl+A selects the whole dashboard for copying. */
+
+button, .tap { touch-action: manipulation; }
+
+html, body { height: 100%; touch-action: manipulation; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Nunito", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.mono {
+  font-family: "Nunito", "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+  letter-spacing: 0.02em;
+}
+
+/* Centered container - fills small touchscreens, constrained on desktop.
+   6"x3.2" portrait display (rotated): full-bleed.
+   landscape desktop: centered at max-width. */
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding: 10px 10px 12px;
+  width: 100%;
+  max-width: 100%;
+  margin-inline: auto;
+}
+@media (min-width: 600px) {
+  .app { max-width: 460px; }
+}
+
+.scroll-area { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: var(--gap); }
+.start-section { flex-shrink: 0; }
+
+/* - Cards -------------------- */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* - Header -------------------- */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 12px;
+  min-height: 46px;
+}
+.header-left { display: flex; align-items: center; gap: 10px; }
+
+.title { font-size: 14px; font-weight: 700; letter-spacing: .2px; }
+.title-sep { color: var(--text-faint); }
+.title-sub { color: var(--text); font-weight: 600; }
+
+.header-right { display: flex; align-items: center; }
+
+.clock-block { text-align: right; }
+.clock { font-size: 17px; font-weight: 600; letter-spacing: .5px; color: var(--green); line-height: 1; }
+
+/* - Patient card -------------------- */
+.patient {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 8px 11px;
+  padding: 10px 14px;
+}
+
+/* name + labelled age/weight share one line */
+.patient-row {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center;
+  gap: 14px;
+}
+.patient-name { font-size: 15px; font-weight: 700; white-space: nowrap; margin-right: auto; }
+.p-stat { display: flex; flex-direction: column; gap: 2px; flex: none; }
+.p-stat-key { font-size: 7.5px; color: var(--text-faint); letter-spacing: 1.4px; }
+.p-stat-val { font-size: 10px; color: var(--text-dim); letter-spacing: .5px; }
+.p-stat-val b { color: var(--text); font-size: 12.5px; font-weight: 700; }
+
+/* - Status labels (plain text, no pill) -------------------- */
+.status-pill {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 9px; font-weight: 700; letter-spacing: 1px;
+  white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.status-pill svg { width: 10px; height: 10px; flex: none; }
+.st-good      { color: var(--green); }
+.st-normal    { color: var(--green); }
+.st-low       { color: var(--amber); }
+.st-slight    { color: var(--orange); }
+.st-elevated  { color: var(--orange); }
+.st-high      { color: var(--red); }
+.st-critical  { color: var(--red); }
+.st-standby   { color: #94a3b8; background: rgba(148,163,184,.08); border-color: rgba(148,163,184,.35); }
+
+/* - Metric cards (vitals + secondary) -------------------- */
+.vitals {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--gap);
+}
+
+.metric-card { padding: 9px 12px 11px; }
+
+.metric-top {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px;
+}
+.metric-label { font-size: 8.5px; color: var(--text-dim); letter-spacing: 1.4px; }
+
+.metric-value-row { display: flex; align-items: baseline; gap: 4px; margin-bottom: 8px; }
+.metric-value-row.tight { margin-bottom: 6px; }
+
+.metric-value {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 27px; font-weight: 700; line-height: 1;
+  letter-spacing: -.5px;
+  font-variant-numeric: tabular-nums;
+}
+.metric-value.md { font-size: 21px; }
+.metric-value.sm { font-size: 22px; }
+
+.metric-unit { font-size: 10.5px; color: var(--text-dim); font-weight: 600; }
+.metric-unit.sm { font-size: 8.5px; }
+
+/* - Progress bars -------------------- */
+.bar {
+  height: 5px;
+  background: rgba(148, 163, 184, 0.10);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.bar.thin { height: 4px; }
+.bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width .9s cubic-bezier(.25,.7,.3,1), background .4s;
+}
+.bar-fill.cyan   { background: var(--cyan);   box-shadow: 0 0 8px rgba(34,211,238,.45); }
+.bar-fill.teal   { background: var(--teal);   box-shadow: 0 0 8px rgba(45,212,191,.45); }
+.bar-fill.green  { background: var(--green);  box-shadow: 0 0 8px rgba(52,211,153,.45); }
+.bar-fill.amber  { background: var(--amber);  box-shadow: 0 0 8px rgba(251,191,36,.40); }
+.bar-fill.orange { background: var(--orange); box-shadow: 0 0 8px rgba(251,146,60,.40); }
+.bar-fill.red    { background: var(--red);    box-shadow: 0 0 8px rgba(251,113,133,.40); }
+.bar-fill.purple { background: var(--purple); box-shadow: 0 0 8px rgba(167,139,250,.45); }
+.bar-fill.dim    { background: #475569; box-shadow: none; }
+
+/* - Electrolyte breakdown card -------------------- */
+/* One card: header row + Sodium / Lactate side by side */
+.bd-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gap);
+}
+
+.bd-item {
+  background: var(--card-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: background .15s, opacity .3s, transform .06s;
+}
+.bd-item:active { background: rgba(34, 211, 238, .06); transform: scale(.98); }
+.bd-item.enter { opacity: 0; transform: translateY(6px); }
+
+.metric-card.compact { padding: 8px 12px 10px; min-height: 62px; }
+
+.secondary {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--gap);
+}
+
+.metric-label sup { font-size: 6.5px; }
+
+.mini-ic {
+  width: 11px; height: 11px;
+  vertical-align: -1.5px;
+  margin-right: 4px;
+}
+/* Circular icon badges beside STRESS / TEMPERATURE labels */
+.mini-ic {
+  width: 19px; height: 19px;
+  padding: 3.5px;
+  border-radius: 50%;
+  vertical-align: middle;
+  margin-right: 5px;
+}
+.mini-ic.purple {
+  color: var(--purple);
+  background: rgba(167, 139, 250, .12);
+  border: 1px solid rgba(167, 139, 250, .35);
+}
+.mini-ic.amber {
+  color: var(--amber);
+  background: rgba(251, 191, 36, .12);
+  border: 1px solid rgba(251, 191, 36, .35);
+}
+
+/* - Recommendations -------------------- */
+.recs-section { display: flex; flex-direction: column; }
+
+/* One shared card containing the header row + all three items */
+.rec-card { padding: 10px 14px 6px; }
+
+.rec-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 4px;
+}
+.rec-head-title {
+  font-size: 8.5px; font-weight: 700;
+  color: var(--green);
+  letter-spacing: 2.2px;
+}
+.rec-hb {
+  width: 13px; height: 13px;
+  color: var(--green);
+  vertical-align: -2.5px;
+  margin-right: 5px;
+}
+.rec-head-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 8px; font-weight: 700;
+  letter-spacing: 1.2px;
+  color: var(--green);
+  background: rgba(52, 211, 153, .10);
+  border: 1px solid rgba(52, 211, 153, .40);
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+.ai-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor;
+  animation: ai-pulse 1.6s ease-in-out infinite;
+}
+@keyframes ai-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .35; }
+}
+
+.rec-list { display: flex; flex-direction: column; gap: 7px; }
+
+.rec-item {
+  display: flex; align-items: center; gap: 11px;
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  cursor: pointer;
+  transition: transform .06s, opacity .3s, border-color .15s;
+}
+.rec-item:active { transform: scale(.98); }
+.rec-item.enter {
+  animation: rec-in .35s cubic-bezier(.25,.7,.3,1) both;
+}
+@keyframes rec-in {
+  from { opacity: 0; transform: translateY(8px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+
+.rec-item.theme-amber {
+  background: linear-gradient(135deg, rgba(251,191,36,.16), rgba(251,191,36,.05));
+  border: 1px solid rgba(251,191,36,.38);
+}
+.rec-item.theme-red {
+  background: linear-gradient(135deg, rgba(251,113,133,.16), rgba(251,113,133,.05));
+  border: 1px solid rgba(251,113,133,.38);
+}
+.rec-item.theme-green {
+  background: linear-gradient(135deg, rgba(52,211,153,.14), rgba(52,211,153,.04));
+  border: 1px solid rgba(52,211,153,.34);
+}
+
+/* icon badge follows the card theme */
+.theme-amber .rec-icon { background: rgba(251,191,36,.16); border-color: rgba(251,191,36,.45); color: var(--amber); }
+.theme-red   .rec-icon { background: rgba(251,113,133,.16); border-color: rgba(251,113,133,.45); color: var(--red); }
+.theme-green .rec-icon { background: rgba(52,211,153,.15); border-color: rgba(52,211,153,.42); color: var(--green); }
+
+.rec-icon {
+  width: 28px; height: 28px;
+  border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center;
+  flex: none;
+}
+.rec-icon svg { width: 14px; height: 14px; }
+.rec-icon.cyan   { background: rgba(34,211,238,.10);  border: 1px solid rgba(34,211,238,.30);  color: var(--cyan); }
+.rec-icon.purple { background: rgba(167,139,250,.10); border: 1px solid rgba(167,139,250,.32); color: var(--purple); }
+.rec-icon.amber  { background: rgba(251,191,36,.10);  border: 1px solid rgba(251,191,36,.30);  color: var(--amber); }
+.rec-icon.green  { background: rgba(52,211,153,.10);  border: 1px solid rgba(52,211,153,.30);  color: var(--green); }
+
+.rec-body { flex: 1; min-width: 0; }
+.rec-title { font-size: 12px; font-weight: 700; }
+.rec-desc { font-size: 9.5px; color: var(--text-dim); margin-top: 1px; }
+.rec-desc b { color: #aebbd4; font-weight: 600; }
+
+/* NO SIGNAL placeholder shown when no face is detected */
+.rec-empty {
+  padding: 14px 10px;
+  text-align: center;
+  border-radius: var(--radius-sm);
+  border: 1px dashed rgba(148, 163, 184, .35);
+  color: var(--text-faint);
+  font-size: 9px;
+  letter-spacing: 1.6px;
+}
+
+/* - Start button -------------------- */
+.start-section {
+  display: none;
+  justify-content: center;
+  padding: 4px 0 8px;
+}
+.btn-start {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  padding: 14px 24px;
+  border: none;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(34,211,238,.20), rgba(99,102,241,.20));
+  border: 1px solid rgba(34,211,238,.40);
+  color: var(--cyan);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background .2s, transform .1s;
+}
+.btn-start:active { transform: scale(.97); }
+.btn-start:disabled { opacity: .5; cursor: default; }
+.btn-start-label {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 4px;
+}
+.btn-start-timer {
+  font-family: var(--font-mono);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text);
+  min-height: 28px;
+}
+.btn-start.running {
+  background: linear-gradient(135deg, rgba(52,211,153,.20), rgba(34,211,238,.20));
+  border-color: rgba(52,211,153,.50);
+  color: var(--green);
+}
+
+
+
+/* - Boot overlay / loading state -------------------- */
+.boot-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity .5s;
+}
+.boot-overlay.hide { opacity: 0; pointer-events: none; }
+
+.boot-box { text-align: center; width: 300px; }
+.pulse-line { width: 120px; height: 28px; color: var(--cyan); margin-bottom: 14px; }
+.pulse-line path {
+  stroke-dasharray: 100;
+  animation: trace 1.4s linear infinite;
+}
+@keyframes trace { from { stroke-dashoffset: 100; } to { stroke-dashoffset: -100; } }
+
+.boot-title { font-size: 9.5px; letter-spacing: 2.5px; color: var(--text-dim); }
+.boot-status { font-size: 8.5px; letter-spacing: 1.6px; color: var(--cyan); margin: 8px 0 12px; }
+.boot-bar {
+  height: 3px; border-radius: 999px;
+  background: rgba(148,163,184,.12); overflow: hidden;
+}
+.boot-bar-fill {
+  height: 100%; width: 0%;
+  background: var(--cyan); border-radius: 999px;
+  transition: width .3s;
+}
+
+/* - Enrollment modal -------------------- */
+.modal {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,.7);
+}
+.modal-box {
+  position: relative; z-index: 1;
+  width: 90%; max-width: 420px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.5);
+}
+.modal-header {
+  font-size: 11px; letter-spacing: 2px; color: var(--amber);
+  margin-bottom: 12px; text-align: center;
+}
+.modal-body p {
+  font-size: 13px; margin: 6px 0; color: var(--text);
+}
+.modal-body input {
+  width: 100%; padding: 10px 12px; margin-top: 8px;
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+  font-size: 14px;
+}
+.modal-actions {
+  display: flex; justify-content: flex-end; gap: 8px;
+  margin-top: 16px;
+}
+.modal-actions button {
+  padding: 8px 16px; border-radius: 6px; font-size: 12px;
+  border: none; cursor: pointer;
+}
+.btn-cancel { background: var(--border); color: var(--text); }
+.btn-primary { background: var(--cyan); color: #001018; font-weight: 700; }
+
+/* - Guidance toast -------------------- */
+.guidance-toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(17, 27, 46, 0.95);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(251, 191, 36, 0.5);
+  color: var(--amber);
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6), 0 0 10px rgba(251, 191, 36, 0.2);
+  pointer-events: none;
+  animation: toast-in 0.25s ease-out;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, -8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* Desktop note: the .app container (max-width 460px, margin-inline auto)
+   floats centered on the page; the sides stay clean navy so the UI
+   reads like a mobile app viewport inside a full desktop webpage. */
+
+/* =====================================================
+   RASPBERRY PI TOUCHSCREEN MODE (portrait, 6" x 3.2")
+   Activates on the rotated Pi panel (narrow + tall viewport).
+   Components scale up dramatically for finger-friendly use
+   at arm's length.
+   ===================================================== */
+
+/* Touch hardening (safe in every mode) */
+html, body {
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.tap, button, .rec-item, .bd-item {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* ---- Touch targets: every tappable box ≥ 48px hit area ---- */
+.card, .bd-item, .rec-item {
+  min-height: 48px;
+}
+.tap { cursor: pointer; transition: border-color .15s, transform .06s; }
+.tap:active { transform: scale(0.985); border-color: rgba(34, 211, 238, 0.55); }
+.tap.pressed { border-color: rgba(34, 211, 238, 0.55); }
+
+/* =====================================================
+   PI TOUCHSCREEN — 1080x1920 PORTRAIT (1920x1080 rotated)
+   Biggest possible UI, zero-scroll, edge-to-edge.
+   1080x1920 = massive vertical space, maximize everything.
+   ===================================================== */
+
+@media (min-width: 500px) and (min-height: 800px) {
+
+  html, body { height: 100%; overflow: hidden; }
+
+  body {
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg);
+  }
+
+  .app {
+    max-width: none;
+    width: 100vw;
+    height: 100vh;
+    padding: 8px 10px 140px 10px;
+    gap: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    margin-inline: 0;
+  }
+
+  .scanner-overlay { position: fixed; inset: 0; }
+
+  /* ---- GLOBAL ---- */
+  :root {
+    --gap:  8px;
+    --pad:  10px;
+    --radius:    12px;
+    --radius-sm: 8px;
+  }
+  body { font-size: 42px; line-height: 1.2; }
+
+  /* ---- HEADER ---- */
+  .header { padding: 14px 20px; min-height: 0; }
+  .title  { font-size: 56px; }
+  .title-sub { font-size: 46px; }
+  .title-sep { font-size: 56px; }
+  .clock  { font-size: 68px; }
+
+  /* ---- STATUS BANNER ---- */
+  .status-banner { padding: 14px 20px; font-size: 28px; font-weight: 800; letter-spacing: 3px; border-radius: 10px; }
+
+  /* ---- PATIENT CARD ---- */
+  .patient { padding: 16px 20px; gap: 10px 24px; }
+  .patient-name { font-size: 66px; }
+  .p-stat-key { font-size: 28px; letter-spacing: 2.5px; }
+  .p-stat-val { font-size: 36px; }
+  .p-stat-val b { font-size: 56px; }
+  .patient-id { font-size: 34px; }
+
+  /* ---- VITALS (3-col row) ---- */
+  .vitals { gap: 10px; }
+
+  /* ---- METRIC CARDS ---- */
+  .metric-card { padding: 10px 16px 10px; min-height: 60px; }
+  .metric-top  { margin-bottom: 4px; }
+  .metric-label { font-size: 20px; letter-spacing: 2.5px; }
+  .metric-value { font-size: 72px; line-height: 1; }
+  .metric-value.md { font-size: 58px; }
+  .metric-value.sm { font-size: 58px; }
+  .metric-unit { font-size: 22px; }
+  .metric-unit.sm { font-size: 18px; }
+
+  /* ---- TEMPERATURE CARD WITH HEATMAP (fills remaining) ---- */
+  #card-temp { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  #card-temp .metric-top,
+  #card-temp .metric-value-row,
+  #card-temp .bar { flex: none; }
+  .thermal-visual { flex: 1 1 auto; padding: 6px 0 0; min-height: 0; display: flex; }
+  .thermal-visual canvas {
+    width: 100%; flex: 1; display: block; border-radius: 8px;
+    background: rgba(0,0,0,.35); image-rendering: pixelated;
+  }
+
+  /* ---- PROGRESS BARS (longer = taller) ---- */
+  .bar { height: 28px; }
+  .bar.thin { height: 20px; }
+
+  /* ---- STATUS PILLS ---- */
+  .status-pill { font-size: 26px; letter-spacing: 2px; gap: 8px; }
+  .status-pill svg { width: 28px; height: 28px; }
+
+  /* ---- SECONDARY (stress + temp) ---- */
+  .secondary { gap: 10px; margin-top: 4px; }
+  .metric-card.compact { padding: 16px 20px 16px; }
+  .mini-ic { width: 48px; height: 48px; padding: 8px; }
+
+  /* ---- BREAKDOWN ---- */
+  .bd-list { gap: 10px; }
+  .bd-item { padding: 16px 20px; }
+
+  /* ---- RECOMMENDATIONS ---- */
+  .recs-section { margin-top: 4px; }
+  .rec-card { padding: 16px 20px 8px; }
+  .rec-head-title { font-size: 32px; letter-spacing: 3px; }
+  .rec-head-tag { font-size: 24px; padding: 8px 20px; gap: 8px; }
+  .rec-list { gap: 6px; }
+  .rec-item { padding: 16px 20px; gap: 16px; }
+  .rec-icon { width: 62px; height: 62px; }
+  .rec-icon svg { width: 34px; height: 34px; }
+  .rec-title { font-size: 38px; }
+  .rec-desc { font-size: 30px; }
+  .rec-empty { padding: 20px 16px; font-size: 30px; }
+
+  /* ---- START BUTTON ---- */
+  .start-section { position: fixed; bottom: 0; left: 0; right: 0; z-index: 50; padding: 6px 10px; background: var(--bg); border-top: 1px solid var(--border); }
+  .btn-start-label { font-size: 44px; letter-spacing: 7px; }
+  .btn-start-timer { font-size: 72px; }
+  .btn-start { padding: 32px 32px; gap: 10px; min-height: 100px; }
+
+  /* ---- SCROLLABLE CONTENT AREA ---- */
+  .scroll-area {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* ---- BOOT OVERLAY ---- */
+  .boot-box { width: 480px; }
+  .pulse-line { width: 200px; height: 50px; margin-bottom: 24px; }
+  .boot-title { font-size: 36px; letter-spacing: 6px; }
+  .boot-sub { font-size: 22px; }
+  .boot-status { font-size: 26px; margin: 14px 0 22px; }
+  .boot-bar { height: 10px; }
+
+  /* ---- MODAL ---- */
+  .modal-overlay { padding: 16px; align-items: center; justify-content: center; }
+  .modal-box { max-width: 98vw; width: 98vw; max-height: 80vh; border-radius: 20px; padding: 44px 48px 32px; display: flex; flex-direction: column; box-sizing: border-box; }
+  .modal-title { font-size: 80px; }
+  .modal-sub { font-size: 48px; margin-top: 6px; }
+  .modal-field { margin-top: 28px; }
+  .modal-field > span { font-size: 56px; display: block; margin-bottom: 8px; }
+  .modal-field input { width: 100%; box-sizing: border-box; padding: 28px 32px; font-size: 52px; border-radius: 14px; }
+  .modal-error { font-size: 36px; min-height: 44px; margin-top: 10px; }
+  .modal-hint { font-size: 36px; margin-top: 8px; }
+  .modal-actions { gap: 16px; margin-top: 28px; flex-shrink: 0; display: flex; }
+  .modal-actions button {
+    padding: 18px 12px !important;
+    font-size: 30px !important;
+    border-radius: 12px !important;
+    min-height: 68px !important;
+    flex: 1 1 0 !important;
+    border: none !important;
+    cursor: pointer !important;
+    font-weight: 700 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+  .btn-ghost {
+    background: rgba(148,163,184,.18) !important;
+    color: #e2e8f0 !important;
+    border: 2px solid rgba(148,163,184,.5) !important;
+  }
+  .save-btn {
+    background: var(--cyan) !important;
+    color: #001018 !important;
+  }
+
+  /* ---- ON-SCREEN KEYBOARD ---- */
+  .osk-key { padding: 22px 16px; font-size: 38px; min-width: 58px; border-radius: 12px; }
+  .osk-del { min-width: 100px; }
+  .osk-space { min-width: 160px; }
+  .osk-done { min-width: 110px; font-size: 26px; }
+  .osk-caps { min-width: 100px; }
+  .osk-panel { gap: 8px; }
+  .osk-row { gap: 8px; }
+
+  /* ---- GUIDANCE TOAST ---- */
+  .guidance-toast { font-size: 24px; padding: 16px 32px; }
+
+  /* ---- STUDENT SELECT ---- */
+  .scanner-box { width: 96%; max-width: none; text-align: center; }
+  .scanner-hint { font-size: 96px; letter-spacing: 6px; margin-bottom: 40px; font-weight: 800; line-height: 1.1; }
+  .manual-panel { width: 100%; padding: 48px; }
+  .manual-panel h3 { font-size: 88px; margin-bottom: 36px; }
+  .manual-item { padding: 48px 56px; font-size: 72px; margin-bottom: 28px; border-radius: 18px; min-height: 130px; display: flex; align-items: center; }
+  .manual-empty { font-size: 64px; }
+  .btn-manual { padding: 44px 72px; font-size: 72px; letter-spacing: 6px; border-radius: 18px; min-height: 130px; margin-top: 32px; font-weight: 700; }
+
+  /* ---- DEBUG BAR ---- */
+  .debug-bar { font-size: 16px; padding: 5px 16px; min-height: 28px; }
+}
+
+/* ── Debug status bar ── */
+.debug-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  background: rgba(0, 0, 0, 0.85);
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--text-dim);
+  z-index: 9999;
+  min-height: 22px;
+}
+.debug-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #555;
+  flex: none;
+  transition: background 0.3s;
+}
+.debug-dot.green  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.debug-dot.amber  { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+.debug-dot.red    { background: var(--red); box-shadow: 0 0 6px var(--red); }
+.debug-dot.cyan   { background: var(--cyan); box-shadow: 0 0 6px var(--cyan); }
+
+/* ── Scanner Overlay ── */
+.scanner-overlay {
+  position: fixed; inset: 0; z-index: 80;
+  background: rgba(11, 17, 32, 0.97);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  transition: opacity .4s;
+}
+.scanner-overlay.active { display: flex; }
+.scanner-overlay.hide { opacity: 0; pointer-events: none; }
+
+.scanner-box {
+  width: 320px;
+  text-align: center;
+}
+
+.scanner-hint {
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 1px;
+  margin-top: 8px;
+}
+
+.btn-manual {
+  margin-top: 14px;
+  padding: 9px 18px;
+  background: transparent;
+  border: 1px solid var(--cyan);
+  border-radius: 6px;
+  color: var(--cyan);
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.btn-manual:hover { background: var(--cyan); color: #06121f; }
+
+.manual-panel {
+  width: 320px;
+  padding: 20px;
+  background: rgba(13, 20, 38, 0.98);
+  border: 1px solid rgba(34, 211, 238, 0.4);
+  border-radius: 12px;
+}
+.manual-panel h3 {
+  margin: 0 0 12px;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--cyan);
+}
+.manual-item {
+  display: block; width: 100%; text-align: left;
+  padding: 10px 12px; margin-bottom: 8px;
+  background: rgba(34, 211, 238, 0.06);
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  border-radius: 8px; color: var(--text); cursor: pointer; font-size: 13px;
+}
+.manual-item:hover { background: rgba(34, 211, 238, 0.16); }
+.manual-empty { font-size: 12px; color: var(--text-faint); margin-bottom: 12px; }
+.manual-actions { display: flex; gap: 8px; margin-top: 6px; }
+
+/* bar-fill red variant */
+.bar-fill.red { background: linear-gradient(90deg, #ef444488, #ef4444); }
+
+/* ── Thermal Camera Heatmap ── */
+.thermal-section { margin-top: 4px; }
+.thermal-visual { padding: 12px 16px 8px; }
+.thermal-visual canvas {
+  width: 100%; height: 180px; display: block; border-radius: 6px;
+  background: rgba(0,0,0,.35); image-rendering: pixelated;
+}
+
+/* ── Save Section (bottom of dashboard) ── */
+.save-section {
+  margin-top: auto;
+}
+
+.save-card {
+  padding: 10px 14px;
+}
+
+.save-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.save-input {
+  flex: 1;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color .2s;
+}
+.save-input:focus { border-color: var(--cyan); }
+.save-input::placeholder { color: var(--text-faint); }
+
+.save-btn {
+  background: var(--cyan);
+  color: #001018;
+  border: none;
+  border-radius: 6px;
+  padding: 9px 16px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity .2s, transform .1s;
+}
+.save-btn:hover { opacity: 0.9; }
+.save-btn:active { transform: scale(0.97); }
+.save-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.save-hint {
+  font-size: 9px;
+  color: var(--text-faint);
+  letter-spacing: 1px;
+  margin-top: 6px;
+  text-align: center;
+}
+.save-hint.success { color: var(--green); }
+.save-hint.error { color: var(--red); }
+/* ================================================================
+   Project DELTA - status banner, student ID chip, enrollment modal,
+   metric freshness states (appended for production workflow)
+   ================================================================ */
+
+/* ---- Status banner ---- */
+.status-banner {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: #94a3b8;
+  text-align: center;
+}
+.status-banner.ok   { color: var(--green); border-color: rgba(52,211,153,.45); background: rgba(52,211,153,.10); }
+.status-banner.warn { color: var(--amber); border-color: rgba(251,191,36,.45); background: rgba(251,191,36,.10); }
+.status-banner.info { color: var(--cyan);  border-color: rgba(34,211,238,.45); background: rgba(34,211,238,.10); }
+.status-banner.err  { color: var(--red);   border-color: rgba(251,113,133,.5); background: rgba(251,113,133,.10); }
+
+/* ---- Student ID chip ---- */
+.patient-id {
+  font-size: 11px;
+  color: var(--cyan);
+  letter-spacing: 1px;
+}
+.patient-id.dim { color: #64748b; }
+
+/* ---- Metric freshness pills ---- */
+.st-live   { color: var(--green); }
+.st-recent { color: var(--teal); }
+.st-stale  { color: var(--amber); }
+.bar-fill.neutral { background: linear-gradient(90deg, #22d3ee55, #22d3ee); }
+
+/* ---- Enrollment modal ---- */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 8, 20, .88);
+  /* NOTE: no backdrop-filter - it crashes weak-GPU renderers when
+     compositing over a playing <video> with active WebGL detection */
+  padding: 16px;
+}
+.modal-box {
+  width: min(420px, 100%);
+  padding: 18px 18px 14px;
+  border-color: rgba(34,211,238,.35);
+  box-shadow: 0 12px 48px rgba(0,0,0,.5);
+}
+.modal-head { margin-bottom: 12px; }
+.modal-title {
+  display: block;
+  color: var(--amber);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+}
+.modal-sub {
+  display: block;
+  margin-top: 4px;
+  color: #94a3b8;
+  font-size: 9px;
+  letter-spacing: 1px;
+}
+.modal-field { display: block; margin-top: 10px; }
+.modal-field > span {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+.modal-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.modal-field input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color .2s;
+  color-scheme: dark;
+}
+.modal-field input:focus { border-color: var(--cyan); }
+.modal-error {
+  min-height: 14px;
+  margin-top: 8px;
+  font-size: 10px;
+  color: var(--red);
+}
+.modal-hint {
+  font-size: 9px;
+  color: #64748b;
+  letter-spacing: .5px;
+}
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.btn-ghost {
+  background: transparent;
+  color: #94a3b8;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 14px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: border-color .2s, color .2s;
+}
+.btn-ghost:hover { color: var(--text); border-color: #475569; }
+
+/* ── On-Screen Keyboard ── */
+.osk-overlay {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  z-index: 10000;
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(8px);
+  padding: 8px 4px 12px;
+  flex-direction: column;
+  align-items: center;
+}
+.osk-panel {
+  width: 100%;
+  max-width: 700px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.osk-row {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+}
+.osk-row.osk-bottom {
+  gap: 6px;
+}
+.osk-key {
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 10px 6px;
+  font-size: 14px;
+  font-family: 'Cascadia Mono', monospace;
+  cursor: pointer;
+  min-width: 28px;
+  text-align: center;
+  transition: background .1s;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+.osk-key:active {
+  background: #334155;
+  border-color: #475569;
+}
+.osk-del {
+  background: #7f1d1d;
+  border-color: #991b1b;
+  color: #fca5a5;
+  min-width: 50px;
+}
+.osk-del:active { background: #991b1b; }
+.osk-space {
+  flex: 1;
+  background: #1e293b;
+}
+.osk-done {
+  background: #065f46;
+  border-color: #047857;
+  color: #a7f3d0;
+  min-width: 60px;
+  font-weight: bold;
+}
+.osk-done:active { background: #047857; }
+.osk-caps {
+  background: #4c1d95;
+  border-color: #6d28d9;
+  color: #ddd6fe;
+  min-width: 50px;
+}
+
+/* =====================================================
+   STRESS ESTIMATOR — temperature contribution details
+   ===================================================== */
+
+/* Temp card detail lines (below bar, above heatmap) */
+.temp-detail, .temp-confidence {
+  font-size: 8px;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+  line-height: 1.3;
+  margin-top: 4px;
+}
+.temp-detail.elevated { color: var(--orange); }
+.temp-detail.calibrating { color: var(--amber); font-style: italic; }
+.temp-confidence { color: var(--text-faint); margin-top: 1px; }
+
+/* Hydration card confidence label */
+.hydration-confidence { font-size: 8px; color: var(--text-faint); letter-spacing: 0.5px; line-height: 1.3; margin-top: 4px; }
+
+/* Stress card detail lines */
+.stress-detail, .stress-category {
+  font-size: 8px;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+  line-height: 1.3;
+  margin-top: 4px;
+}
+.stress-category { color: var(--text-faint); margin-top: 1px; }
+
+/* ---- Pi touchscreen overrides ---- */
+@media (min-width: 500px) and (min-height: 800px) {
+  .temp-detail, .temp-confidence,
+  .stress-detail, .stress-category {
+    font-size: 20px;
+    letter-spacing: 1px;
+    margin-top: 6px;
+  }
+  .temp-confidence, .stress-category {
+    font-size: 18px;
+    margin-top: 2px;
+  }
+}
+
+/* =====================================================
+   SESSION SUMMARY — post-session data review
+   ===================================================== */
+
+.session-summary {
+  padding: 2px 0;
+}
+.summary-header {
+  margin-bottom: 8px;
+}
+.summary-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--cyan);
+  letter-spacing: 1px;
+}
+.summary-meta {
+  font-size: 9px;
+  color: var(--text-dim);
+  margin-top: 2px;
+  letter-spacing: 0.5px;
+}
+.summary-section {
+  margin-top: 10px;
+}
+.summary-section-title {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  margin-bottom: 5px;
+  text-transform: uppercase;
+}
+.summary-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9px;
+  line-height: 1.4;
+}
+.summary-table th {
+  text-align: left;
+  padding: 3px 6px;
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+.summary-table td {
+  padding: 2px 6px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border-soft);
+  white-space: nowrap;
+}
+.summary-table td:first-child {
+  color: var(--text-faint);
+}
+.summary-table tr.uncalibrated td {
+  opacity: 0.5;
+  font-style: italic;
+}
+.summary-table .dim {
+  color: var(--text-faint);
+  opacity: 0.5;
+}
+.summary-footer {
+  margin-top: 12px;
+  font-size: 9px;
+  color: var(--text-faint);
+  text-align: center;
+  letter-spacing: 0.5px;
+}
+.summary-loading {
+  font-size: 9px;
+  color: var(--text-faint);
+  letter-spacing: 0.5px;
+  padding: 8px 0;
+}
+
+/* Summary hydration card (total from all session data) */
+.summary-hydration { margin-top: 10px; }
+.summary-hydration-card {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--card-2);
+}
+.summary-hydration-card.theme-green { border-color: rgba(52, 211, 153, 0.3); }
+.summary-hydration-card.theme-amber { border-color: rgba(251, 191, 36, 0.3); }
+.summary-hydration-card.theme-red   { border-color: rgba(251, 113, 133, 0.3); }
+.summary-hydration-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+}
+.summary-hydration-value .metric-unit { font-size: 16px; color: var(--text-dim); }
+.summary-hydration-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  margin-top: 4px;
+}
+.theme-green .summary-hydration-label { color: var(--green); }
+.theme-amber .summary-hydration-label { color: var(--amber); }
+.theme-red   .summary-hydration-label { color: var(--red); }
+.summary-hydration-conf {
+  font-size: 8px;
+  color: var(--text-faint);
+  margin-top: 2px;
+  letter-spacing: 0.5px;
+}
+.summary-hydration-breakdown {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-soft);
+}
+.hyd-comp {
+  display: flex;
+  gap: 6px;
+  font-size: 8px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+.hyd-comp-name { flex: 1; color: var(--text-faint); }
+.hyd-comp-val { width: 70px; text-align: right; }
+.hyd-comp-weight { width: 35px; text-align: right; color: var(--text-faint); }
+.hyd-comp-score { width: 45px; text-align: right; }
+
+/* ---- Pi touchscreen overrides for summary ---- */
+@media (min-width: 500px) and (min-height: 800px) {
+  .summary-title { font-size: 24px; }
+  .summary-meta { font-size: 18px; }
+  .summary-section-title { font-size: 18px; margin-bottom: 8px; }
+  .summary-table { font-size: 18px; }
+  .summary-table th { padding: 6px 10px; }
+  .summary-table td { padding: 4px 10px; }
+  .summary-footer { font-size: 18px; margin-top: 16px; }
+  .summary-hydration-value { font-size: 48px; }
+  .summary-hydration-value .metric-unit { font-size: 24px; }
+  .summary-hydration-label { font-size: 16px; }
+  .summary-hydration-conf { font-size: 13px; }
+  .hyd-comp { font-size: 13px; }
+}
+
+/* =====================================================
+   PI TOUCHSCREEN — LANDSCAPE (1920x1080 / 1024x600)
+   Wide orientation: side-by-side layout where possible,
+   two-column vitals, horizontal flow.
+   ===================================================== */
+
+@media (min-width: 700px) and (orientation: landscape) {
+
+  html, body { height: 100%; overflow: hidden; }
+
+  body {
+    display: flex; align-items: stretch; justify-content: center;
+    background: var(--bg);
+  }
+
+  .app {
+    max-width: none;
+    width: 100vw;
+    height: 100vh;
+    padding: 6px 12px 70px;
+    gap: 6px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    margin-inline: 0;
+  }
+
+  .scanner-overlay { position: fixed; inset: 0; }
+
+  :root {
+    --gap:  6px;
+    --pad:  8px;
+    --radius:    10px;
+    --radius-sm: 7px;
+  }
+  body { font-size: 20px; line-height: 1.2; }
+
+  /* ---- HEADER ---- */
+  .header { padding: 6px 14px; min-height: 0; }
+  .title  { font-size: 22px; }
+  .title-sub { font-size: 18px; }
+  .title-sep { font-size: 22px; }
+  .clock  { font-size: 26px; }
+
+  /* ---- STATUS BANNER ---- */
+  .status-banner { padding: 6px 14px; font-size: 14px; font-weight: 800; letter-spacing: 2px; border-radius: 8px; }
+
+  /* ---- PATIENT CARD ---- */
+  .patient { padding: 6px 14px; gap: 6px 16px; }
+  .patient-name { font-size: 26px; }
+  .p-stat-key { font-size: 12px; letter-spacing: 2px; }
+  .p-stat-val { font-size: 14px; }
+  .p-stat-val b { font-size: 22px; }
+  .patient-id { font-size: 14px; }
+
+  /* ---- MAIN CONTENT: two-column layout ---- */
+  .scroll-area {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto auto auto;
+    gap: 6px;
+    align-content: start;
+  }
+
+  /* Left column: vitals + breakdown, Right column: secondary + recs */
+  .vitals {
+    grid-column: 1 / 2;
+    grid-row: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+  }
+
+  .breakdown-section {
+    grid-column: 1 / 2;
+    grid-row: 2;
+  }
+
+  .secondary {
+    grid-column: 2 / 3;
+    grid-row: 1 / 3;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .recs-section {
+    grid-column: 1 / 3;
+    grid-row: 3;
+  }
+
+  /* ---- METRIC CARDS ---- */
+  .metric-card { padding: 6px 10px 8px; min-height: 50px; }
+  .metric-top  { margin-bottom: 3px; }
+  .metric-label { font-size: 10px; letter-spacing: 1.5px; }
+  .metric-value { font-size: 28px; line-height: 1; }
+  .metric-value.md { font-size: 24px; }
+  .metric-value.sm { font-size: 24px; }
+  .metric-unit { font-size: 11px; }
+  .metric-unit.sm { font-size: 9px; }
+
+  /* ---- PROGRESS BARS ---- */
+  .bar { height: 8px; }
+  .bar.thin { height: 6px; }
+
+  /* ---- STATUS PILLS ---- */
+  .status-pill { font-size: 10px; letter-spacing: 1.5px; gap: 4px; }
+  .status-pill svg { width: 12px; height: 12px; }
+
+  /* ---- SECONDARY ---- */
+  .secondary { gap: 6px; }
+  .metric-card.compact { padding: 8px 12px; }
+  .mini-ic { width: 22px; height: 22px; padding: 4px; }
+
+  /* ---- BREAKDOWN ---- */
+  .bd-list { gap: 6px; }
+  .bd-item { padding: 8px 10px; }
+
+  /* ---- RECOMMENDATIONS ---- */
+  .recs-section { margin-top: 0; }
+  .rec-card { padding: 8px 14px 6px; }
+  .rec-head-title { font-size: 12px; letter-spacing: 2px; }
+  .rec-head-tag { font-size: 10px; padding: 4px 10px; gap: 4px; }
+  .rec-list { gap: 4px; flex-direction: row; flex-wrap: wrap; }
+  .rec-item { padding: 8px 12px; gap: 10px; flex: 1 1 45%; min-width: 280px; }
+  .rec-icon { width: 30px; height: 30px; }
+  .rec-icon svg { width: 16px; height: 16px; }
+  .rec-title { font-size: 13px; }
+  .rec-desc { font-size: 11px; }
+  .rec-empty { padding: 10px; font-size: 12px; }
+
+  /* ---- TEMP + THERMAL (fills remaining space in secondary) ---- */
+  #card-temp { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  #card-temp .metric-top,
+  #card-temp .metric-value-row,
+  #card-temp .bar { flex: none; }
+  .thermal-visual { flex: 1 1 auto; padding: 4px 0 0; min-height: 0; display: flex; }
+  .thermal-visual canvas {
+    width: 100%; flex: 1; display: block; border-radius: 6px;
+    background: rgba(0,0,0,.35); image-rendering: pixelated;
+  }
+
+  /* ---- START BUTTON (fixed bottom bar) ---- */
+  .start-section { position: fixed; bottom: 0; left: 0; right: 0; z-index: 50; padding: 4px 12px; background: var(--bg); border-top: 1px solid var(--border); }
+  .btn-start-label { font-size: 22px; letter-spacing: 4px; }
+  .btn-start-timer { font-size: 32px; }
+  .btn-start { padding: 12px 24px; gap: 6px; min-height: 52px; }
+
+  /* ---- BOOT OVERLAY ---- */
+  .boot-box { width: 360px; }
+  .pulse-line { width: 140px; height: 36px; margin-bottom: 18px; }
+  .boot-title { font-size: 20px; letter-spacing: 5px; }
+  .boot-sub { font-size: 14px; }
+  .boot-status { font-size: 16px; margin: 10px 0 16px; }
+  .boot-bar { height: 6px; }
+
+  /* ---- MODAL ---- */
+  .modal-overlay { padding: 12px; align-items: center; justify-content: center; }
+  .modal-box { max-width: 90vw; width: 90vw; max-height: 85vh; border-radius: 16px; padding: 32px 36px 24px; }
+  .modal-title { font-size: 40px; }
+  .modal-sub { font-size: 28px; margin-top: 4px; }
+  .modal-field { margin-top: 16px; }
+  .modal-field > span { font-size: 32px; display: block; margin-bottom: 6px; }
+  .modal-field input { width: 100%; box-sizing: border-box; padding: 16px 20px; font-size: 28px; border-radius: 10px; }
+  .modal-error { font-size: 20px; min-height: 28px; margin-top: 6px; }
+  .modal-hint { font-size: 20px; margin-top: 6px; }
+  .modal-actions { gap: 12px; margin-top: 18px; }
+  .modal-actions button {
+    padding: 12px 10px !important;
+    font-size: 18px !important;
+    border-radius: 10px !important;
+    min-height: 48px !important;
+  }
+
+  /* ---- ON-SCREEN KEYBOARD ---- */
+  .osk-key { padding: 14px 10px; font-size: 22px; min-width: 40px; border-radius: 8px; }
+  .osk-del { min-width: 70px; }
+  .osk-space { min-width: 120px; }
+  .osk-done { min-width: 80px; font-size: 16px; }
+  .osk-caps { min-width: 70px; }
+  .osk-panel { gap: 6px; }
+  .osk-row { gap: 5px; }
+
+  /* ---- GUIDANCE TOAST ---- */
+  .guidance-toast { font-size: 14px; padding: 10px 20px; }
+
+  /* ---- STUDENT SELECT ---- */
+  .scanner-box { width: 90%; max-width: none; text-align: center; }
+  .scanner-hint { font-size: 40px; letter-spacing: 4px; margin-bottom: 20px; font-weight: 800; line-height: 1.1; }
+  .manual-panel { width: 100%; padding: 28px; }
+  .manual-panel h3 { font-size: 44px; margin-bottom: 20px; }
+  .manual-item { padding: 24px 32px; font-size: 36px; margin-bottom: 14px; border-radius: 14px; min-height: 80px; display: flex; align-items: center; }
+  .manual-empty { font-size: 32px; }
+  .btn-manual { padding: 24px 40px; font-size: 36px; letter-spacing: 4px; border-radius: 14px; min-height: 80px; margin-top: 18px; font-weight: 700; }
+
+  /* ---- DEBUG BAR ---- */
+  .debug-bar { font-size: 12px; padding: 3px 12px; min-height: 22px; }
+
+  /* ---- Stress/temp detail lines ---- */
+  .temp-detail, .temp-confidence,
+  .stress-detail, .stress-category {
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    margin-top: 3px;
+  }
+  .temp-confidence, .stress-category {
+    font-size: 9px;
+    margin-top: 1px;
+  }
+
+  /* ---- Summary ---- */
+  .summary-title { font-size: 14px; }
+  .summary-meta { font-size: 11px; }
+  .summary-section-title { font-size: 11px; margin-bottom: 5px; }
+  .summary-table { font-size: 11px; }
+  .summary-table th { padding: 4px 8px; }
+  .summary-table td { padding: 3px 8px; }
+  .summary-footer { font-size: 11px; margin-top: 10px; }
+  .summary-hydration-value { font-size: 32px; }
+  .summary-hydration-value .metric-unit { font-size: 16px; }
+  .summary-hydration-label { font-size: 11px; }
+  .summary-hydration-conf { font-size: 9px; }
+  .hyd-comp { font-size: 9px; }
+}

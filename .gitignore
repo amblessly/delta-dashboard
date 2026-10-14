@@ -1,0 +1,22 @@
+# Server dependencies & secrets
+node_modules/
+server/node_modules/
+server/.env
+api/node_modules/
+.vercel/
+
+# Python
+__pycache__/
+*.pyc
+*/venv/
+
+# OS junk
+Thumbs.db
+.DS_Store
+
+# Local database
+*.db
+*.sqlite
+
+# Env files (keep .env.example)
+.env

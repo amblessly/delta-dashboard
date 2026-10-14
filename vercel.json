@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "buildCommand": "echo 'static build'",
+  "outputDirectory": ".",
+  "devCommand": "npx vercel dev",
+  "framework": null,
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1" }
+  ]
+}

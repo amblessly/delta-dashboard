@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DELTA \u2014 Session Report</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>DELTA Session Report</h1>
+    <span id="db-status" class="db-dot" title="connection status"></span>
+  </header>
+
+  <section class="controls">
+    <label>Student
+      <select id="student-filter"><option value="">All students</option></select>
+    </label>
+    <label>Segment length
+      <select id="seg-options">
+        <option value="15">15 s</option>
+        <option value="30">30 s</option>
+        <option value="60" selected>1 min</option>
+        <option value="300">5 min</option>
+      </select>
+    </label>
+    <button id="refresh-btn">Refresh</button>
+    <span class="seg-hint" style="align-self:center;">auto-refreshes every 15 s &mdash; completed sessions appear automatically</span>
+  </section>
+
+  <main id="sessions"></main>
+  <p id="empty" class="empty hidden">No sessions recorded yet.</p>
+
+  <script src="app.js"></script>
+</body>
+</html>

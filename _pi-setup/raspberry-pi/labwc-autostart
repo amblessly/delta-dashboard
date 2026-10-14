@@ -1,0 +1,10 @@
+#!/bin/sh
+sleep 2
+wlr-randr --output HDMI-A-1 --transform 90
+sleep 1
+wlr-randr --output HDMI-A-1 --transform 90
+
+setsid wvkbd-mobintl --hidden -H 500 -R 12 \
+  --bg 1e293bee --fg e2e8f0cc --fg-sp 94a3b8cc \
+  --text e2e8f0ff --text-sp 94a3b8ff \
+  --press 334155cc --press-sp 475569cc </dev/null >/dev/null 2>&1 &
