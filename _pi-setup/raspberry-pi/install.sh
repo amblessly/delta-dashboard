@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------
-# Project DELTA dashboard - Raspberry Pi / Linux installer (step 1 of 2)
+# Project DELTA - Raspberry Pi / Linux installer (step 1 of 2)
 # Installs system packages, Node.js, app dependencies, and the database
 # schema. Run this AFTER filling in server/.env (see README).
 #
-# Usage:  bash raspberry-pi/install.sh
+# Usage:  cd _pi-setup && bash raspberry-pi/install.sh
 # ---------------------------------------------------------------------
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$PI_DIR/../.." && pwd)"
 SERVER_DIR="$REPO_DIR/server"
+
+if [ ! -d "$SERVER_DIR" ]; then
+  echo "ERROR: server directory not found at $SERVER_DIR" >&2
+  echo "       Run this script from inside the DELTA repo." >&2
+  exit 1
+fi
 
 echo "==> DELTA dashboard install"
 echo "    repo:   $REPO_DIR"
@@ -73,6 +80,9 @@ cat <<EOF
 
  Next step - optional autostart on boot (kiosk mode):
      bash raspberry-pi/install-services.sh && sudo reboot
+
+ Session data website:
+     http://<pi-ip>:8000/sessions.html
 
  Manual run instead:
      cd server && npm start      ->  http://localhost:8000

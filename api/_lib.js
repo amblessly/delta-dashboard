@@ -298,6 +298,7 @@ async function ensureSchema(pool) {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_measurements_measurement_id ON measurements(measurement_id) WHERE measurement_id IS NOT NULL;
     ALTER TABLE measurements ADD COLUMN IF NOT EXISTS hydration_baseline NUMERIC(5,1);
     ALTER TABLE measurements ADD COLUMN IF NOT EXISTS hydration_confidence NUMERIC(3,2);
+    CREATE INDEX IF NOT EXISTS idx_measurements_session ON measurements(session_client_key, recorded_at DESC);
   `);
 }
 
@@ -465,12 +466,23 @@ async function insertMeasurement(pool, body) {
   if (errors.length > 0) return { error: "measurement rejected", errors };
 
   const cols = ["session_client_key", "student_id", "source", "recorded_at"];
-  const values = [
-    typeof body.sessionClientKey === "string" ? body.sessionClientKey.slice(0, 64) : null,
-    owner.rows[0].id,
-    src,
-    recordedAt.toISOString(),
-  ];
+  let sessionKey = null;
+  if (typeof body.sessionClientKey === "string" && body.sessionClientKey.trim()) {
+    sessionKey = body.sessionClientKey.trim().slice(0, 64);
+  }
+  /* Keep every reading attached to a real session: accept the caller's key
+     only when it exists, otherwise fall back to the student's open session.
+     Readings are never rejected for a missing/unknown session - only the
+     association is dropped. */
+  if (sessionKey) {
+    const known = await pool.query("SELECT 1 FROM detection_sessions WHERE client_key = $1", [sessionKey]);
+    if (known.rowCount === 0) sessionKey = null;
+  }
+  if (!sessionKey) {
+    sessionKey = await resolveOpenSessionKey(pool, owner.rows[0].id, recordedAt);
+  }
+
+  const values = [sessionKey, owner.rows[0].id, src, recordedAt.toISOString()];
   const placeholders = ["$1", "$2", "$3", "$4"];
 
   if (mid) { cols.push("measurement_id"); placeholders.push(`$${placeholders.length + 1}`); values.push(mid); }
@@ -502,7 +514,59 @@ async function insertMeasurement(pool, body) {
                VALUES (${placeholders.join(", ")})
                RETURNING id, recorded_at`;
   const { rows } = await pool.query(sql, values);
-  return { ok: true, id: rows[0].id, recordedAt: rows[0].recorded_at, metrics: cleaned, source: src };
+  return {
+    ok: true,
+    id: rows[0].id,
+    recordedAt: rows[0].recorded_at,
+    metrics: cleaned,
+    source: src,
+    sessionClientKey: sessionKey,
+  };
+}
+
+/* ── Session record association ──────────────────────────────────
+
+   A reading belongs to a session when it carries the session key, or
+   when it was recorded inside the session window. The window exists so
+   readings posted by the Raspberry Pi services (which do not send a
+   session key) are still attributed to the session that was running at
+   that moment - the same rule wireless-report/report-server.js uses. */
+const SESSION_FALLBACK_WINDOW_SECONDS = 60;
+const SESSION_OPEN_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+
+function readingInsideWindowSql(m, d, winSeconds) {
+  const win = Math.max(1, Math.min(3600, Number(winSeconds) || SESSION_FALLBACK_WINDOW_SECONDS));
+  return "(" + m + ".recorded_at >= " + d + ".started_at"
+    + " AND " + m + ".recorded_at < COALESCE(" + d + ".ended_at,"
+    + " " + d + ".started_at + make_interval(secs => " + win + "))"
+    + " AND " + m + ".student_id IS NOT DISTINCT FROM " + d + ".student_id)";
+}
+
+function sessionRecordMatchSql(alias, winSeconds) {
+  return "(" + alias + ".session_client_key = d.client_key"
+    + " OR (" + alias + ".session_client_key IS NULL"
+    + " AND " + readingInsideWindowSql(alias, "d", winSeconds) + "))";
+}
+
+function sessionStatus(startedAt, endedAt, now) {
+  if (endedAt) return "COMPLETED";
+  const started = new Date(startedAt).getTime();
+  if (Number.isNaN(started)) return "UNKNOWN";
+  return (now || Date.now()) - started <= SESSION_OPEN_MAX_AGE_MS ? "ACTIVE" : "INTERRUPTED";
+}
+
+/* Most recent session still open for this student, if any. */
+async function resolveOpenSessionKey(pool, studentId, now) {
+  const ref = now ? new Date(now) : new Date();
+  const { rows } = await pool.query(
+    `SELECT client_key FROM detection_sessions
+      WHERE student_id = $1
+        AND ended_at IS NULL
+        AND started_at > $2
+      ORDER BY started_at DESC LIMIT 1`,
+    [studentId, new Date(ref.getTime() - SESSION_OPEN_MAX_AGE_MS)]
+  );
+  return rows.length ? rows[0].client_key : null;
 }
 
 /* POST /api/sessions */
@@ -546,19 +610,20 @@ async function getSessionSummary(pool, clientKey) {
   );
   if (sess.rowCount === 0) return { error: "session not found" };
   const session = sess.rows[0];
-  const { rows: measurements } = await pool.query(
-    `SELECT m.*, s.student_code AS "studentCode"
-     FROM measurements m LEFT JOIN students s ON s.id = m.student_id
-     WHERE m.session_client_key = $1
-     ORDER BY m.recorded_at ASC`, [key]
-  );
+  const summarySql = 'SELECT m.*, s.student_code AS "studentCode" '
+    + "FROM detection_sessions d "
+    + "JOIN measurements m ON " + sessionRecordMatchSql("m") + " "
+    + "LEFT JOIN students s ON s.id = m.student_id "
+    + "WHERE d.client_key = $1 "
+    + "ORDER BY m.recorded_at ASC";
+  const { rows: measurements } = await pool.query(summarySql, [key]);
   const summary = {};
-  for (const [key, def] of Object.entries(METRIC_VALIDATORS)) {
+  for (const [metric, def] of Object.entries(METRIC_VALIDATORS)) {
     const vals = measurements
       .map(r => r[def.column] != null ? Number(r[def.column]) : null)
       .filter(v => v != null);
     if (vals.length === 0) continue;
-    summary[key] = {
+    summary[metric] = {
       min: Math.min(...vals),
       max: Math.max(...vals),
       avg: vals.reduce((a, b) => a + b, 0) / vals.length,
@@ -587,6 +652,12 @@ module.exports = {
   startSession,
   endSession,
   getSessionSummary,
+  sessionStatus,
+  readingInsideWindowSql,
+  sessionRecordMatchSql,
+  SESSION_FALLBACK_WINDOW_SECONDS,
+  SESSION_OPEN_MAX_AGE_MS,
+  resolveOpenSessionKey,
   computeAge,
   freshnessState,
   calculateHydration,

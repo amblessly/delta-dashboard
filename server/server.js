@@ -10,6 +10,11 @@
        POST /api/sessions/end        {clientKey}
        GET  /api/measurements?limit=
        POST /api/measurements        (sensor ingestion; validated + source + timestamp)
+    Session dashboard (read-only, serves sessions.html):
+       GET  /api/stats
+       GET  /api/sessions?limit=&page=&q=&from=&to=&status=&order=
+       GET  /api/sessions/:key/records?limit=&page=&source=&from=&to=&sort=&order=
+       GET  /api/sessions/:key/export.csv      (key = session id | all | unassigned)
    Start: npm start   (reads server/.env)
 */
 "use strict";
@@ -20,6 +25,7 @@ const path = require("path");
 const { exec, spawn } = require("child_process");
 const { Pool } = require("pg");
 const lib = require("../api/_lib.js");
+const history = require("../api/_history.js");
 
 /* ── .env ─────────────────────────────────────────────────────── */
 (function loadEnv() {
@@ -144,6 +150,68 @@ function serveStatic(req, res, urlPath) {
   });
 }
 
+/* ── Session dashboard (read-only) ─────────────────────────────────
+   Values come straight from PostgreSQL. Session scope for records and
+   CSV export: a client key, "unassigned" or "all".
+   --------------------------------------------------------------- */
+
+const OPEN_MAX_AGE_SECONDS = Math.round(lib.SESSION_OPEN_MAX_AGE_MS / 1000);
+
+function csvFilename(scope, filters) {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  const scopeName = scope === "all" ? "all-records" : scope === "unassigned" ? "unassigned-records" : "session-" + scope;
+  return "delta-" + scopeName + (filters.from || filters.to ? "-filtered" : "") + "-" + stamp + ".csv";
+}
+
+function sendCSV(res, filename, csv) {
+  res.writeHead(200, {
+    "Content-Type": "text/csv; charset=utf-8",
+    "Content-Disposition": 'attachment; filename="' + filename.replace(/[^A-Za-z0-9._-]/g, "_") + '"',
+    "Cache-Control": "no-store",
+  });
+  res.end(csv);
+}
+
+function sessionKeyFromPath(pathname) {
+  const match = pathname.match(/^\/api\/sessions\/([^/]+)\/(records|export\.csv)$/);
+  return match ? { key: decodeURIComponent(match[1]), action: match[2] } : null;
+}
+
+async function handleSessionDashboard(req, res, url) {
+  const p = url.pathname;
+
+  if (p === "/api/stats" && req.method === "GET") {
+    return sendJSON(res, 200, await history.getStats(pool, OPEN_MAX_AGE_SECONDS));
+  }
+
+  if (p === "/api/sessions" && req.method === "GET") {
+    const parsed = history.parseHistoryQuery(url.searchParams, { defaultOrder: "desc" });
+    if (parsed.error) return sendJSON(res, 400, { error: parsed.error });
+    return sendJSON(res, 200, await history.listSessions(pool, parsed.filters, OPEN_MAX_AGE_SECONDS));
+  }
+
+  const route = sessionKeyFromPath(p);
+  if (route) {
+    const scopeKey = route.key === "all" || route.key === "unassigned" ? route.key : String(route.key).slice(0, 64);
+    const parsed = history.parseHistoryQuery(url.searchParams, { defaultOrder: "asc", defaultSort: "recorded_at" });
+    if (parsed.error) return sendJSON(res, 400, { error: parsed.error });
+
+    if (route.action === "records") {
+      if (scopeKey !== "all" && scopeKey !== "unassigned") {
+        const found = await pool.query("SELECT 1 FROM detection_sessions WHERE client_key = $1", [scopeKey]);
+        if (found.rowCount === 0) return sendJSON(res, 404, { error: "Session not found" });
+      }
+      const result = await history.listRecords(pool, scopeKey, parsed.filters);
+      return sendJSON(res, 200, { scope: scopeKey, ...result });
+    }
+
+    const exported = await history.exportRecordsCsv(pool, scopeKey, parsed.filters);
+    return sendCSV(res, csvFilename(scopeKey, parsed.filters), exported.csv);
+  }
+
+  return false;
+}
+
 /* ── API handlers (mirror api/ serverless functions) ──────────── */
 
 async function handleApi(req, res, url) {
@@ -195,6 +263,11 @@ async function handleApi(req, res, url) {
     const result = await lib.endSession(pool, b.clientKey);
     if (result.error) return sendJSON(res, 400, result);
     return sendJSON(res, 200, result);
+  }
+
+  if (method === "GET" && (p === "/api/stats" || p === "/api/sessions" || p.startsWith("/api/sessions/"))) {
+    const handled = await handleSessionDashboard(req, res, url);
+    if (handled !== false) return;
   }
 
   const sessionSummary = p.match(/^\/api\/sessions\/([^/]+)\/summary$/);
@@ -274,6 +347,8 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`[server] Project DELTA dashboard -> http://localhost:${PORT}`);
+  console.log(`[server] Session data website  -> http://localhost:${PORT}/sessions.html`);
   console.log("[server] API: /api/health /api/students /api/students/:code /api/students/:code/health");
   console.log("[server]     /api/students/enroll /api/sessions /api/measurements");
+  console.log("[server]     /api/stats /api/sessions/:key/records /api/sessions/:key/export.csv");
 });

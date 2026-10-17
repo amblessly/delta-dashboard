@@ -59,3 +59,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_measurements_measurement_id ON measurement
 -- Hydration calculation fields
 ALTER TABLE measurements ADD COLUMN IF NOT EXISTS hydration_baseline NUMERIC(5,1);
 ALTER TABLE measurements ADD COLUMN IF NOT EXISTS hydration_confidence NUMERIC(3,2);
+
+-- Session dashboard: fast lookup of the readings recorded inside a session
+CREATE INDEX IF NOT EXISTS idx_measurements_session ON measurements(session_client_key, recorded_at DESC);

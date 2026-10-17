@@ -115,6 +115,14 @@ body {
 
 .header-right { display: flex; align-items: center; }
 
+/* Link to the session data website (served from the same server). */
+.header-link {
+  font-size: 9px; letter-spacing: .6px; text-decoration: none;
+  color: var(--text-faint); border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 7px; margin-right: 12px;
+}
+.header-link:hover { color: var(--cyan); border-color: rgba(34, 211, 238, .5); }
+
 .clock-block { text-align: right; }
 .clock { font-size: 17px; font-weight: 600; letter-spacing: .5px; color: var(--green); line-height: 1; }
 

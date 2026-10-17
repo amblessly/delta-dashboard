@@ -6,7 +6,10 @@
   "main": "server.js",
   "scripts": {
     "setup-db": "node setup-db.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test test/history-unit.test.js",
+    "test:db": "node --test test/history-db.test.js",
+    "test:all": "node --test test/"
   },
   "dependencies": {
     "pg": "^8.23.0"
